@@ -186,3 +186,15 @@ cli.runApp(new WorkerOptions({
   initializeProcessTimeout: 30_000,
   shutdownProcessTimeout: 15_000,
 }));
+
+// Dummy HTTP server for Render Web Service Health Checks
+import http from 'http';
+const port = process.env.PORT || 8080;
+if (process.env.RENDER || process.env.PORT) {
+  http.createServer((req, res) => {
+    res.writeHead(200);
+    res.end('Agent is running\\n');
+  }).listen(port, () => {
+    console.log(`🚀 Health check server listening on port ${port}`);
+  });
+}
