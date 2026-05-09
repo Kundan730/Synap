@@ -164,9 +164,52 @@ function ActiveSessionUI() {
   const [videoId, setVideoId] = useState<string>("");
 
   // New Interactive States
-  const [sandboxCode, setSandboxCode] = useState<string>("");
+  const [sandboxFiles, setSandboxFiles] = useState<Record<string, string>>({});
   const [sandboxLang, setSandboxLang] = useState<string>("react");
   const [quizData, setQuizData] = useState<QuizData | null>(null);
+
+  const room = useRoomContext();
+
+  // Load from MongoDB
+  useEffect(() => {
+    if (!room?.name) return;
+    fetch(`/api/session?room=${room.name}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.state) {
+          const { state } = data;
+          if (state.messages) setMessages(state.messages);
+          if (state.mermaidCode) setMermaidCode(state.mermaidCode);
+          if (state.viewMode) setViewMode(state.viewMode);
+          if (state.desmosEquations) setDesmosEquations(state.desmosEquations);
+          if (state.htmlAppletCode) setHtmlAppletCode(state.htmlAppletCode);
+          if (state.videoId) setVideoId(state.videoId);
+          if (state.sandboxFiles) setSandboxFiles(state.sandboxFiles);
+          if (state.sandboxLang) setSandboxLang(state.sandboxLang);
+          if (state.quizData) setQuizData(state.quizData);
+        }
+      })
+      .catch(e => console.error("Failed to load session from DB", e));
+  }, [room?.name]);
+
+  // Save to MongoDB (Debounced)
+  useEffect(() => {
+    if (!room?.name) return;
+    
+    const timeout = setTimeout(() => {
+      const state = {
+        messages, mermaidCode, viewMode, desmosEquations, htmlAppletCode,
+        videoId, sandboxFiles, sandboxLang, quizData
+      };
+      fetch('/api/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ room: room.name, state })
+      }).catch(e => console.error("Failed to save session to DB", e));
+    }, 2000); // 2-second debounce to prevent spamming DB
+
+    return () => clearTimeout(timeout);
+  }, [messages, mermaidCode, viewMode, desmosEquations, htmlAppletCode, videoId, sandboxFiles, sandboxLang, quizData, room?.name]);
 
 
   const chatEnd = useRef<HTMLDivElement>(null);
@@ -202,7 +245,6 @@ function ActiveSessionUI() {
   }, [userSegments]);
 
   // Function to stop the agent from speaking via data channel
-  const room = useRoomContext();
   const stopAgentSpeaking = useCallback(async () => {
     try {
       const encoder = new TextEncoder();
@@ -255,7 +297,7 @@ function ActiveSessionUI() {
         } else if (payload.tool === 'open_code_editor') {
           if (payload.data) {
             setSandboxLang(payload.data.language || "react");
-            setSandboxCode(payload.data.initialCode || "");
+            setSandboxFiles(payload.data.files || {});
           }
           setViewMode("code");
         } else if (payload.tool === 'show_quiz') {
@@ -414,7 +456,7 @@ function ActiveSessionUI() {
               )}
               {viewMode === "video" && <VideoRenderer videoId={videoId} />}
               {viewMode === "mermaid" && <MermaidRenderer code={mermaidCode} className="w-full max-w-5xl" />}
-              {viewMode === "code" && <CodeSandbox initialCode={sandboxCode} language={sandboxLang} />}
+              {viewMode === "code" && <CodeSandbox files={sandboxFiles} language={sandboxLang} />}
               {viewMode === "quiz" && quizData && <QuizRenderer quiz={quizData} />}
               {viewMode === "drawing" && <DrawingBoard />}
             </div>

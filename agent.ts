@@ -113,11 +113,11 @@ export default defineAgent({
         description: 'Open an interactive code sandbox on the whiteboard. Use this for programming tutorials or coding challenges.',
         parameters: z.object({
           language: z.enum(['react', 'javascript', 'html', 'typescript', 'vue']).describe('The programming language environment to use.'),
-          initialCode: z.string().optional().describe('Optional initial code to populate the editor with.')
+          files: z.record(z.string()).optional().describe('An object containing file paths as keys and file contents as values. Ensure you use appropriate filenames for the selected language (e.g., /App.js for react). Example: { "/App.js": "...", "/styles.css": "..." }')
         }),
-        execute: async ({ language, initialCode }, _) => {
+        execute: async ({ language, files }, _) => {
           console.log('💻 LLM called open_code_editor:', language);
-          const payload = new TextEncoder().encode(JSON.stringify({ type: 'TOOL_CALL', tool: 'open_code_editor', data: { language, initialCode } }));
+          const payload = new TextEncoder().encode(JSON.stringify({ type: 'TOOL_CALL', tool: 'open_code_editor', data: { language, files } }));
           await ctx.room.localParticipant?.publishData(payload, { reliable: true });
           return 'Code editor is open. Tell the user they can start coding.';
         }

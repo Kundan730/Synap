@@ -2,7 +2,7 @@
 import React from "react";
 import { Sandpack } from "@codesandbox/sandpack-react";
 
-export default function CodeSandbox({ initialCode, language = "react" }: { initialCode?: string, language?: string }) {
+export default function CodeSandbox({ files, language = "react" }: { files?: Record<string, string>, language?: string }) {
   const templateMap: Record<string, any> = {
     "react": "react",
     "javascript": "vanilla",
@@ -12,11 +12,12 @@ export default function CodeSandbox({ initialCode, language = "react" }: { initi
   };
 
   const template = templateMap[language] || "react";
-  const filename = template === "react" ? "/App.js" : "/index.js";
+  const defaultFilename = template === "react" ? "/App.js" : "/index.js";
 
-  const files = React.useMemo(() => {
-    return initialCode ? { [filename]: initialCode } : undefined;
-  }, [initialCode, filename]);
+  const sandpackFiles = React.useMemo(() => {
+    if (!files || Object.keys(files).length === 0) return undefined;
+    return files;
+  }, [files]);
 
   return (
     <div className="w-full h-full min-h-[500px] rounded-[24px] overflow-hidden shadow-sm border border-slate-200 bg-[#151515]">
@@ -30,7 +31,7 @@ export default function CodeSandbox({ initialCode, language = "react" }: { initi
           showInlineErrors: true,
           wrapContent: true,
         }}
-        files={files}
+        files={sandpackFiles}
       />
     </div>
   );
