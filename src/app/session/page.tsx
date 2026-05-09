@@ -203,6 +203,50 @@ function ActiveSessionUI() {
 
   // Function to stop the agent from speaking via data channel
   const room = useRoomContext();
+
+  // ── MongoDB session persistence ──
+  // `hydrated` gates the save effect so the initial Mongo load doesn't
+  // immediately re-fire a save (load → setState → save → … pingpong).
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    if (!room?.name) return;
+    fetch(`/api/session?room=${room.name}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.state) {
+          const s = data.state;
+          if (s.messages) setMessages(s.messages);
+          if (s.mermaidCode) setMermaidCode(s.mermaidCode);
+          if (s.viewMode) setViewMode(s.viewMode);
+          if (s.desmosEquations) setDesmosEquations(s.desmosEquations);
+          if (s.htmlAppletCode) setHtmlAppletCode(s.htmlAppletCode);
+          if (s.videoId) setVideoId(s.videoId);
+          if (typeof s.sandboxCode === "string") setSandboxCode(s.sandboxCode);
+          if (s.sandboxLang) setSandboxLang(s.sandboxLang);
+          if (s.quizData) setQuizData(s.quizData);
+        }
+      })
+      .catch(e => console.error("Failed to load session from DB", e))
+      .finally(() => setHydrated(true));
+  }, [room?.name]);
+
+  useEffect(() => {
+    if (!room?.name || !hydrated) return;
+    const timeout = setTimeout(() => {
+      const state = {
+        messages, mermaidCode, viewMode, desmosEquations, htmlAppletCode,
+        videoId, sandboxCode, sandboxLang, quizData,
+      };
+      fetch('/api/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ room: room.name, state }),
+      }).catch(e => console.error("Failed to save session to DB", e));
+    }, 2000); // 2s debounce so we don't spam Mongo on every state tick
+    return () => clearTimeout(timeout);
+  }, [hydrated, messages, mermaidCode, viewMode, desmosEquations, htmlAppletCode, videoId, sandboxCode, sandboxLang, quizData, room?.name]);
+
   const stopAgentSpeaking = useCallback(async () => {
     try {
       const encoder = new TextEncoder();
