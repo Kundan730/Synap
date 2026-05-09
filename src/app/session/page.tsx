@@ -38,6 +38,8 @@ const MermaidRenderer = dynamic(() => import("@/components/MermaidRenderer"), { 
 import DesmosRenderer from "@/components/DesmosRenderer";
 import HTMLAppletRenderer from "@/components/HTMLAppletRenderer";
 import VideoRenderer from "@/components/VideoRenderer";
+import ManimRenderer from "@/components/ManimRenderer";
+import GeoGebraRenderer from "@/components/GeoGebraRenderer";
 import DrawingBoard from "@/components/DrawingBoard";
 import CodeSandbox from "@/components/CodeSandbox";
 import QuizRenderer, { QuizData } from "@/components/QuizRenderer";
@@ -158,10 +160,13 @@ function ActiveSessionUI() {
   const [vizLoading, setVizLoading] = useState(false);
   const [topic, setTopic] = useState("General Learning");
   const [sessionTime, setSessionTime] = useState(0);
-  const [viewMode, setViewMode] = useState<"mermaid" | "desmos" | "html" | "video" | "drawing" | "code" | "quiz">("mermaid");
+  const [viewMode, setViewMode] = useState<"mermaid" | "desmos" | "html" | "video" | "drawing" | "code" | "quiz" | "manim" | "geogebra">("mermaid");
   const [desmosEquations, setDesmosEquations] = useState<string[]>([]);
   const [htmlAppletCode, setHtmlAppletCode] = useState<string>("");
   const [videoId, setVideoId] = useState<string>("");
+  const [manimVideoUrl, setManimVideoUrl] = useState<string>("");
+  const [geogebraCommands, setGeogebraCommands] = useState<string[]>([]);
+  const [geogebraApp, setGeogebraApp] = useState<"graphing" | "geometry" | "3d" | "classic" | "scientific">("geometry");
 
   // New Interactive States
   const [sandboxCode, setSandboxCode] = useState<string>("");
@@ -222,6 +227,8 @@ function ActiveSessionUI() {
           if (s.desmosEquations) setDesmosEquations(s.desmosEquations);
           if (s.htmlAppletCode) setHtmlAppletCode(s.htmlAppletCode);
           if (s.videoId) setVideoId(s.videoId);
+          if (Array.isArray(s.geogebraCommands)) setGeogebraCommands(s.geogebraCommands);
+          if (s.geogebraApp) setGeogebraApp(s.geogebraApp);
           if (typeof s.sandboxCode === "string") setSandboxCode(s.sandboxCode);
           if (s.sandboxLang) setSandboxLang(s.sandboxLang);
           if (s.quizData) setQuizData(s.quizData);
@@ -234,9 +241,13 @@ function ActiveSessionUI() {
   useEffect(() => {
     if (!room?.name || !hydrated) return;
     const timeout = setTimeout(() => {
+      // Note: manimVideoUrl is intentionally NOT persisted — a base64 mp4
+      // can be hundreds of KB and would blow past the 512KB cap on
+      // /api/session. The user can regenerate the animation if they refresh.
       const state = {
         messages, mermaidCode, viewMode, desmosEquations, htmlAppletCode,
         videoId, sandboxCode, sandboxLang, quizData,
+        geogebraCommands, geogebraApp,
       };
       fetch('/api/session', {
         method: 'POST',
@@ -245,7 +256,7 @@ function ActiveSessionUI() {
       }).catch(e => console.error("Failed to save session to DB", e));
     }, 2000); // 2s debounce so we don't spam Mongo on every state tick
     return () => clearTimeout(timeout);
-  }, [hydrated, messages, mermaidCode, viewMode, desmosEquations, htmlAppletCode, videoId, sandboxCode, sandboxLang, quizData, room?.name]);
+  }, [hydrated, messages, mermaidCode, viewMode, desmosEquations, htmlAppletCode, videoId, sandboxCode, sandboxLang, quizData, geogebraCommands, geogebraApp, room?.name]);
 
   const stopAgentSpeaking = useCallback(async () => {
     try {
@@ -277,6 +288,27 @@ function ActiveSessionUI() {
     setVizLoading(false);
   }, []);
 
+  const generateManim = useCallback(async (manimTopic: string) => {
+    setVizLoading(true);
+    setViewMode("manim");
+    setManimVideoUrl(""); // loader state
+    try {
+      const res = await fetch("/api/manim", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic: manimTopic }),
+      });
+      const data = await res.json();
+      if (data.videoDataUrl) {
+        setManimVideoUrl(data.videoDataUrl);
+      } else {
+        console.error("Manim gen failed:", data);
+      }
+    } catch (e) {
+      console.error("Manim gen error:", e);
+    }
+    setVizLoading(false);
+  }, []);
+
   // Listen for explicit Tool Calls from the Agent
   useDataChannel((msg) => {
     try {
@@ -291,6 +323,14 @@ function ActiveSessionUI() {
           setViewMode("mermaid");
         } else if (payload.tool === 'generate_interactive_applet') {
           generateApplet(payload.data);
+        } else if (payload.tool === 'generate_manim_video') {
+          generateManim(payload.data);
+        } else if (payload.tool === 'show_geogebra_construction') {
+          if (payload.data) {
+            if (Array.isArray(payload.data.commands)) setGeogebraCommands(payload.data.commands);
+            if (payload.data.appName) setGeogebraApp(payload.data.appName);
+          }
+          setViewMode("geogebra");
         } else if (payload.tool === 'play_educational_video') {
           setVideoId(payload.data);
           setViewMode("video");
@@ -457,7 +497,16 @@ function ActiveSessionUI() {
                 )
               )}
               {viewMode === "video" && <VideoRenderer videoId={videoId} />}
+              {viewMode === "manim" && (
+                manimVideoUrl ? <ManimRenderer videoUrl={manimVideoUrl} /> : (
+                  <div className="flex flex-col items-center justify-center text-slate-400 gap-4">
+                    <Loader2 className="w-12 h-12 animate-spin text-indigo-500" />
+                    <p className="font-bold tracking-widest uppercase text-xs">Rendering Manim animation… (~30-60s)</p>
+                  </div>
+                )
+              )}
               {viewMode === "mermaid" && <MermaidRenderer code={mermaidCode} className="w-full max-w-5xl" />}
+              {viewMode === "geogebra" && <GeoGebraRenderer commands={geogebraCommands} appName={geogebraApp} />}
               {viewMode === "code" && <CodeSandbox initialCode={sandboxCode} language={sandboxLang} />}
               {viewMode === "quiz" && quizData && <QuizRenderer quiz={quizData} />}
               {viewMode === "drawing" && <DrawingBoard />}

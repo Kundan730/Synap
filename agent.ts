@@ -93,6 +93,35 @@ export default defineAgent({
           return `Simulation for '${topic}' is being generated in the background and will appear on the whiteboard shortly. Tell the user it's loading.`;
         }
       }),
+      show_geogebra_construction: llm.tool({
+        description: 'Show an interactive GeoGebra construction on the whiteboard. Use this for geometry (triangles, circles, polygons, transformations), 3D solids, and constructions where Desmos is not enough. Pass GeoGebra commands as an array of strings.',
+        parameters: z.object({
+          commands: z.array(z.string()).describe('GeoGebra command-line commands, executed in order. Examples: ["A = (0,0)", "B = (4,0)", "C = (2,3)", "Polygon(A,B,C)"] or ["f(x) = x^2", "Derivative(f)"]'),
+          appName: z.enum(['graphing', 'geometry', '3d', 'classic', 'scientific']).optional().describe('Which GeoGebra app variant to use. Default "geometry".')
+        }),
+        execute: async ({ commands, appName }, _) => {
+          console.log('📐 LLM called show_geogebra_construction:', commands);
+          const payload = new TextEncoder().encode(JSON.stringify({
+            type: 'TOOL_CALL',
+            tool: 'show_geogebra_construction',
+            data: { commands, appName: appName || 'geometry' },
+          }));
+          await ctx.room.localParticipant?.publishData(payload, { reliable: true });
+          return 'GeoGebra construction displayed.';
+        }
+      }),
+      generate_manim_video: llm.tool({
+        description: 'Generate a 3Blue1Brown-style mathematical animation using Manim and play it on the whiteboard. Best for explaining math/CS concepts that benefit from step-by-step animated reasoning (limits, derivatives, vector fields, sorting algorithms, graph traversal, etc). Takes ~30-60 seconds to render — tell the user to wait.',
+        parameters: z.object({
+          topic: z.string().describe('A precise description of what to animate, e.g. "the geometric meaning of a derivative as the limit of secant slopes".')
+        }),
+        execute: async ({ topic }, _) => {
+          console.log('🎬 LLM called generate_manim_video for topic:', topic);
+          const payload = new TextEncoder().encode(JSON.stringify({ type: 'TOOL_CALL', tool: 'generate_manim_video', data: topic }));
+          await ctx.room.localParticipant?.publishData(payload, { reliable: true });
+          return `A Manim animation for '${topic}' is rendering. It takes about 30-60 seconds. Tell the user it's being generated and explain the concept while they wait.`;
+        }
+      }),
       play_educational_video: llm.tool({
         description: 'Play a relevant educational video (e.g. YouTube video on the topic) directly on the whiteboard.',
         parameters: z.object({
