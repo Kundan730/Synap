@@ -1,26 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { KJUR } from "jsrsasign";
 
-// TODO(auth): like /api/livekit, this hands out host/participant signatures
-// to any caller. Gate on an authenticated session and derive role from the
-// user's permissions instead of trusting the request body.
-
-const SAFE_TOKEN = /^[a-zA-Z0-9_\-:.]{1,64}$/;
-
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const sessionName: unknown = body?.sessionName;
-    const role: unknown = body?.role;
+    const { sessionName, role } = await req.json();
 
-    if (typeof sessionName !== "string" || !SAFE_TOKEN.test(sessionName)) {
-      return NextResponse.json({ error: "Invalid sessionName" }, { status: 400 });
+    if (!sessionName) {
+      return NextResponse.json({ error: "Missing sessionName" }, { status: 400 });
     }
-
-    // role: 0 = participant, 1 = host. Default to participant — a missing/invalid
-    // role should never silently elevate to host (the old `role || 1` did exactly
-    // that, and also coerced the legitimate value 0 up to 1).
-    const roleType = role === 1 ? 1 : 0;
 
     const sdkKey = process.env.ZOOM_SDK_KEY;
     const sdkSecret = process.env.ZOOM_SDK_SECRET;
@@ -36,7 +23,7 @@ export async function POST(req: NextRequest) {
     const oPayload = {
       app_key: sdkKey,
       tpc: sessionName,
-      role_type: roleType,
+      role_type: role || 1, // 1 = host, 0 = participant
       version: 1,
       iat: iat,
       exp: exp,

@@ -3,9 +3,9 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  VideoOff, PhoneOff, Send,
-  PanelRightOpen, PanelRightClose, FileText,
-  ArrowLeft,
+  Mic, MicOff, Video as VideoIcon, VideoOff, PhoneOff, Send, Sparkles,
+  PanelRightOpen, PanelRightClose, FileText, Brain,
+  Lightbulb, ArrowLeft, Maximize2, Minimize2,
   BookOpen, ListChecks, PenTool, MessageSquare, Loader2,
   Square,
 } from "lucide-react";
@@ -13,6 +13,7 @@ import Link from "next/link";
 import Logo from "@/components/Logo";
 import dynamic from "next/dynamic";
 import ReactMarkdown from "react-markdown";
+import { VOICES, DEFAULT_VOICE_ID } from "@/lib/elevenlabs";
 
 // LiveKit Imports
 import {
@@ -21,6 +22,7 @@ import {
   VideoTrack,
   useTracks,
   useLocalParticipant,
+  useParticipants,
   useVoiceAssistant,
   useTrackTranscription,
   TrackToggle,
@@ -29,7 +31,7 @@ import {
   useDataChannel,
   useChat,
 } from "@livekit/components-react";
-import { Track } from "livekit-client";
+import { Track, DataPacket_Kind } from "livekit-client";
 import "@livekit/components-styles";
 
 const MermaidRenderer = dynamic(() => import("@/components/MermaidRenderer"), { ssr: false });
@@ -44,6 +46,15 @@ type Tab = "chat" | "notes" | "quiz" | "summary";
 interface ChatMsg { id: number; role: "user" | "ai"; text: string; time: string; }
 
 const NOW = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+function stripMermaid(text: string): string {
+  return text.replace(/```mermaid\n[\s\S]*?```/g, "*(I have generated a diagram for you on the whiteboard)*").trim();
+}
+
+function extractMermaid(text: string): string | null {
+  const match = text.match(/```mermaid\n([\s\S]*?)```/);
+  return match ? match[1].trim() : null;
+}
 
 export default function SessionPage() {
   // LiveKit Connection State
@@ -141,7 +152,8 @@ function ActiveSessionUI() {
   const [messages, setMessages] = useState<ChatMsg[]>([
     { id: 1, role: "ai", text: "Welcome to the WebRTC Room! I am your Synap AI tutor. What would you like to learn today?", time: NOW() },
   ]);
-  const [isTyping] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
   const [mermaidCode, setMermaidCode] = useState<string>("graph TD\n    A[\"🚀 LiveKit WebRTC Connected\"] --> B[\"Ultra-low latency audio/video\"]\n    A --> C[\"AI Agent Ready\"]\n    B --> D[\"Interactive Learning\"]");
   const [vizLoading, setVizLoading] = useState(false);
   const [topic, setTopic] = useState("General Learning");
@@ -152,65 +164,20 @@ function ActiveSessionUI() {
   const [videoId, setVideoId] = useState<string>("");
 
   // New Interactive States
-  const [sandboxFiles, setSandboxFiles] = useState<Record<string, string>>({});
+  const [sandboxCode, setSandboxCode] = useState<string>("");
   const [sandboxLang, setSandboxLang] = useState<string>("react");
   const [quizData, setQuizData] = useState<QuizData | null>(null);
-
-  const room = useRoomContext();
-  const [hydrated, setHydrated] = useState(false);
-
-  // Load from MongoDB
-  useEffect(() => {
-    if (!room?.name) return;
-    fetch(`/api/session?room=${room.name}`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.state) {
-          const { state } = data;
-          if (state.messages) setMessages(state.messages);
-          if (state.mermaidCode) setMermaidCode(state.mermaidCode);
-          if (state.viewMode) setViewMode(state.viewMode);
-          if (state.desmosEquations) setDesmosEquations(state.desmosEquations);
-          if (state.htmlAppletCode) setHtmlAppletCode(state.htmlAppletCode);
-          if (state.videoId) setVideoId(state.videoId);
-          if (state.sandboxFiles) setSandboxFiles(state.sandboxFiles);
-          if (state.sandboxLang) setSandboxLang(state.sandboxLang);
-          if (state.quizData) setQuizData(state.quizData);
-        }
-      })
-      .catch(e => console.error("Failed to load session from DB", e))
-      .finally(() => setHydrated(true));
-  }, [room?.name]);
-
-  // Save to MongoDB (Debounced).
-  // `hydrated` gate: don't fire a save until after the initial load resolves,
-  // otherwise the load setState immediately re-fires this effect and writes
-  // the just-loaded state straight back.
-  useEffect(() => {
-    if (!room?.name || !hydrated) return;
-
-    const timeout = setTimeout(() => {
-      const state = {
-        messages, mermaidCode, viewMode, desmosEquations, htmlAppletCode,
-        videoId, sandboxFiles, sandboxLang, quizData
-      };
-      fetch('/api/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ room: room.name, state })
-      }).catch(e => console.error("Failed to save session to DB", e));
-    }, 2000); // 2-second debounce to prevent spamming DB
-
-    return () => clearTimeout(timeout);
-  }, [hydrated, messages, mermaidCode, viewMode, desmosEquations, htmlAppletCode, videoId, sandboxFiles, sandboxLang, quizData, room?.name]);
 
 
   const chatEnd = useRef<HTMLDivElement>(null);
 
   // LiveKit Hooks
   const { localParticipant } = useLocalParticipant();
+  const participants = useParticipants();
+  const aiParticipant = participants.find(p => p.identity.toLowerCase().includes('ai') || p.identity.toLowerCase().includes('agent'));
   const allVideoTracks = useTracks([Track.Source.Camera]);
   const myVideoTrack = allVideoTracks.find(t => t.participant.identity === localParticipant.identity);
+  const aiVideoTrack = aiParticipant ? allVideoTracks.find(t => t.participant.identity === aiParticipant.identity) : null;
   const isMicMuted = !localParticipant.isMicrophoneEnabled;
   const { send: sendChat } = useChat();
 
@@ -235,6 +202,7 @@ function ActiveSessionUI() {
   }, [userSegments]);
 
   // Function to stop the agent from speaking via data channel
+  const room = useRoomContext();
   const stopAgentSpeaking = useCallback(async () => {
     try {
       const encoder = new TextEncoder();
@@ -287,7 +255,7 @@ function ActiveSessionUI() {
         } else if (payload.tool === 'open_code_editor') {
           if (payload.data) {
             setSandboxLang(payload.data.language || "react");
-            setSandboxFiles(payload.data.files || {});
+            setSandboxCode(payload.data.initialCode || "");
           }
           setViewMode("code");
         } else if (payload.tool === 'show_quiz') {
@@ -308,10 +276,27 @@ function ActiveSessionUI() {
 
   // ── Refs for latest state ──
   const messagesRef = useRef(messages);
+  const topicRef = useRef(topic);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
+  useEffect(() => { topicRef.current = topic; }, [topic]);
 
-  // Sync agent voice transcripts into the chat panel
+
+  const generateVisualization = useCallback(async (vizTopic: string, context?: string) => {
+    setVizLoading(true);
+    try {
+      const res = await fetch("/api/visualize", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic: vizTopic, context }),
+      });
+      const data = await res.json();
+      if (data.mermaid) setMermaidCode(data.mermaid);
+    } catch (e) { console.error("Viz error:", e); }
+    setVizLoading(false);
+  }, []);
+
+  // Sync agent voice transcripts into the chat panel (after generateVisualization is declared)
   const processedAgentSegIds = useRef<Set<string>>(new Set());
+  const lastVizTimestamp = useRef<number>(0);
   const liveAgentMsgId = useRef<number | null>(null);
 
   useEffect(() => {
@@ -344,7 +329,7 @@ function ActiveSessionUI() {
         }
       }
     }
-  }, [agentTranscriptions]);
+  }, [agentTranscriptions, topic, generateVisualization]);
 
   const sendMessage = useCallback(async () => {
     const text = chatInput.trim();
@@ -354,8 +339,7 @@ function ActiveSessionUI() {
     const userMsg: ChatMsg = { id: Date.now(), role: "user", text, time: NOW() };
     setMessages((m) => [...m, userMsg]);
     setChatInput("");
-    // Read via the ref so we see the latest messages, not a closure snapshot.
-    if (messagesRef.current.length <= 2) setTopic(text.slice(0, 50));
+    if (messages.length <= 2) setTopic(text.slice(0, 50));
 
     try {
       // Send the message directly into the LiveKit Room chat!
@@ -364,7 +348,7 @@ function ActiveSessionUI() {
     } catch (error) {
       console.error("Failed to send text to agent:", error);
     }
-  }, [chatInput, sendChat]);
+  }, [chatInput, sendChat, messages]);
 
   const tabs: { key: Tab; icon: typeof MessageSquare; label: string }[] = [
     { key: "chat", icon: MessageSquare, label: "Chat" },
@@ -430,7 +414,7 @@ function ActiveSessionUI() {
               )}
               {viewMode === "video" && <VideoRenderer videoId={videoId} />}
               {viewMode === "mermaid" && <MermaidRenderer code={mermaidCode} className="w-full max-w-5xl" />}
-              {viewMode === "code" && <CodeSandbox files={sandboxFiles} language={sandboxLang} />}
+              {viewMode === "code" && <CodeSandbox initialCode={sandboxCode} language={sandboxLang} />}
               {viewMode === "quiz" && quizData && <QuizRenderer quiz={quizData} />}
               {viewMode === "drawing" && <DrawingBoard />}
             </div>

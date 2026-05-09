@@ -1,6 +1,5 @@
 import { cli, defineAgent, voice, WorkerOptions, llm } from '@livekit/agents';
 import * as google from '@livekit/agents-plugin-google';
-import * as silero from '@livekit/agents-plugin-silero';
 import { z } from 'zod';
 import * as dotenv from 'dotenv';
 import path from 'path';
@@ -28,16 +27,12 @@ STYLE RULES:
 IMPORTANT:
 - You are an AI tutor that helps people learn ANY subject: programming, science, math, history, languages, etc.
 - If the learner asks you to explain something in depth, DO explain it fully. Don't cut it short.
-- CRITICAL CODE RULE: When generating code (especially React apps), keep the code EXTREMELY short and simplified (max 50 lines). Generating large apps will crash your backend API! Provide minimal, basic examples only.
 - If the user just says "hi" or "ok", keep it brief.
 - YOU HAVE DIRECT ACCESS TO THE USER'S WHITEBOARD via your tools! Do NOT ever say you cannot execute code or show things. You absolutely can.
-- PROACTIVE VISUAL LEARNING (CRITICAL):
-  - Do NOT just explain things verbally! Every time you explain ANY concept, you MUST trigger a visual tool simultaneously to illustrate your point on the whiteboard.
-  - If explaining a process, algorithm, or relationship -> use show_mermaid_diagram
-  - If explaining math or data -> use show_desmos_graph
-  - If explaining science, physics, geography, or anything physical -> use generate_interactive_applet
-  - If explaining code -> use open_code_editor
-  - ALWAYS call a tool AS you start speaking so the user has something to look at. A session without visuals is a failure.
+- VISUALIZATIONS: You MUST use your tools to display visual content on the whiteboard. 
+  - Math/Equations -> Use show_desmos_graph
+  - Flowcharts/Architecture -> Use show_mermaid_diagram
+  - Interactive Physics/3D/Simulations/Animations -> Use generate_interactive_applet
   
 CRITICAL RULE FOR CODE/SIMULATIONS:
 If the user asks for a simulation, animation, or interactive applet (like the solar system or a physics engine), you MUST use the \`generate_interactive_applet\` tool and provide the topic. NEVER try to write the code yourself. NEVER output raw code blocks in your spoken/chat response. ALWAYS delegate it using the tool so it appears on the whiteboard immediately!`;
@@ -63,14 +58,9 @@ export default defineAgent({
         }),
         execute: async ({ equations }, _) => {
           console.log('📈 LLM called show_desmos_graph:', equations);
-          try {
-            const payload = new TextEncoder().encode(JSON.stringify({ type: 'TOOL_CALL', tool: 'show_desmos_graph', data: equations }));
-            await ctx.room.localParticipant?.publishData(payload, { reliable: true });
-            return 'Graph successfully displayed to the user.';
-          } catch (e: any) {
-            console.error('Failed to publish data:', e);
-            return 'Error: Could not display graph.';
-          }
+          const payload = new TextEncoder().encode(JSON.stringify({ type: 'TOOL_CALL', tool: 'show_desmos_graph', data: equations }));
+          await ctx.room.localParticipant?.publishData(payload, { reliable: true });
+          return 'Graph successfully displayed to the user.';
         }
       }),
       show_mermaid_diagram: llm.tool({
@@ -80,14 +70,9 @@ export default defineAgent({
         }),
         execute: async ({ code }, _) => {
           console.log('📊 LLM called show_mermaid_diagram');
-          try {
-            const payload = new TextEncoder().encode(JSON.stringify({ type: 'TOOL_CALL', tool: 'show_mermaid_diagram', data: code }));
-            await ctx.room.localParticipant?.publishData(payload, { reliable: true });
-            return 'Diagram displayed.';
-          } catch (e: any) {
-            console.error('Failed to publish data:', e);
-            return 'Error: Could not display diagram.';
-          }
+          const payload = new TextEncoder().encode(JSON.stringify({ type: 'TOOL_CALL', tool: 'show_mermaid_diagram', data: code }));
+          await ctx.room.localParticipant?.publishData(payload, { reliable: true });
+          return 'Diagram displayed.';
         }
       }),
       generate_interactive_applet: llm.tool({
@@ -97,14 +82,9 @@ export default defineAgent({
         }),
         execute: async ({ topic }, _) => {
           console.log('🎮 LLM called generate_interactive_applet for topic:', topic);
-          try {
-            const payload = new TextEncoder().encode(JSON.stringify({ type: 'TOOL_CALL', tool: 'generate_interactive_applet', data: topic }));
-            await ctx.room.localParticipant?.publishData(payload, { reliable: true });
-            return `Simulation for '${topic}' is being generated in the background and will appear on the whiteboard shortly. Tell the user it's loading.`;
-          } catch (e: any) {
-            console.error('Failed to publish data:', e);
-            return 'Error: Failed to generate simulation. Inform the user something went wrong.';
-          }
+          const payload = new TextEncoder().encode(JSON.stringify({ type: 'TOOL_CALL', tool: 'generate_interactive_applet', data: topic }));
+          await ctx.room.localParticipant?.publishData(payload, { reliable: true });
+          return `Simulation for '${topic}' is being generated in the background and will appear on the whiteboard shortly. Tell the user it's loading.`;
         }
       }),
       play_educational_video: llm.tool({
@@ -114,14 +94,9 @@ export default defineAgent({
         }),
         execute: async ({ youtubeVideoId }, _) => {
           console.log('🎥 LLM called play_educational_video:', youtubeVideoId);
-          try {
-            const payload = new TextEncoder().encode(JSON.stringify({ type: 'TOOL_CALL', tool: 'play_educational_video', data: youtubeVideoId }));
-            await ctx.room.localParticipant?.publishData(payload, { reliable: true });
-            return 'Video is playing.';
-          } catch (e: any) {
-            console.error('Failed to publish data:', e);
-            return 'Error: Could not play video.';
-          }
+          const payload = new TextEncoder().encode(JSON.stringify({ type: 'TOOL_CALL', tool: 'play_educational_video', data: youtubeVideoId }));
+          await ctx.room.localParticipant?.publishData(payload, { reliable: true });
+          return 'Video is playing.';
         }
       }),
       open_drawing_board: llm.tool({
@@ -129,32 +104,22 @@ export default defineAgent({
         parameters: z.object({}),
         execute: async (_, __) => {
           console.log('🎨 LLM called open_drawing_board');
-          try {
-            const payload = new TextEncoder().encode(JSON.stringify({ type: 'TOOL_CALL', tool: 'open_drawing_board' }));
-            await ctx.room.localParticipant?.publishData(payload, { reliable: true });
-            return 'Drawing board is now open. The user can start sketching.';
-          } catch (e: any) {
-            console.error('Failed to publish data:', e);
-            return 'Error: Could not open drawing board.';
-          }
+          const payload = new TextEncoder().encode(JSON.stringify({ type: 'TOOL_CALL', tool: 'open_drawing_board' }));
+          await ctx.room.localParticipant?.publishData(payload, { reliable: true });
+          return 'Drawing board is now open. The user can start sketching.';
         }
       }),
       open_code_editor: llm.tool({
         description: 'Open an interactive code sandbox on the whiteboard. Use this for programming tutorials or coding challenges.',
         parameters: z.object({
           language: z.enum(['react', 'javascript', 'html', 'typescript', 'vue']).describe('The programming language environment to use.'),
-          files: z.record(z.string(), z.string()).describe('An object containing file paths and contents. CRITICAL: KEEP CODE EXTREMELY SHORT (max 50 lines). Generating large apps will crash the server! Example: { "/App.js": "export default () => <h1>Short App</h1>;" }')
+          initialCode: z.string().optional().describe('Optional initial code to populate the editor with.')
         }),
-        execute: async ({ language, files }, _) => {
+        execute: async ({ language, initialCode }, _) => {
           console.log('💻 LLM called open_code_editor:', language);
-          try {
-            const payload = new TextEncoder().encode(JSON.stringify({ type: 'TOOL_CALL', tool: 'open_code_editor', data: { language, files } }));
-            await ctx.room.localParticipant?.publishData(payload, { reliable: true });
-            return 'Code editor is open. Tell the user they can start coding.';
-          } catch (e: any) {
-            console.error('Failed to publish data:', e);
-            return 'Error: The code generated was too large to send over the network. Please apologize and generate a much simpler, smaller code snippet.';
-          }
+          const payload = new TextEncoder().encode(JSON.stringify({ type: 'TOOL_CALL', tool: 'open_code_editor', data: { language, initialCode } }));
+          await ctx.room.localParticipant?.publishData(payload, { reliable: true });
+          return 'Code editor is open. Tell the user they can start coding.';
         }
       }),
       show_quiz: llm.tool({
@@ -167,36 +132,26 @@ export default defineAgent({
         }),
         execute: async ({ question, options, correctAnswerIndex, explanation }, _) => {
           console.log('📝 LLM called show_quiz:', question);
-          try {
-            const payload = new TextEncoder().encode(JSON.stringify({ 
-              type: 'TOOL_CALL', 
-              tool: 'show_quiz', 
-              data: { question, options, correctAnswerIndex, explanation } 
-            }));
-            await ctx.room.localParticipant?.publishData(payload, { reliable: true });
-            return 'Quiz is displayed on the whiteboard. Wait for the user to answer and tell you how they did.';
-          } catch (e: any) {
-            console.error('Failed to publish data:', e);
-            return 'Error: Could not display quiz.';
-          }
+          const payload = new TextEncoder().encode(JSON.stringify({ 
+            type: 'TOOL_CALL', 
+            tool: 'show_quiz', 
+            data: { question, options, correctAnswerIndex, explanation } 
+          }));
+          await ctx.room.localParticipant?.publishData(payload, { reliable: true });
+          return 'Quiz is displayed on the whiteboard. Wait for the user to answer and tell you how they did.';
         }
       }),
     };
 
-    const chatCtx = new llm.ChatContext();
-    
     const agent = new voice.Agent({
       llm: realtimeModel,
-      chatCtx: chatCtx,
       instructions: TUTOR_SYSTEM_PROMPT,
-      turnDetection: 'vad',
-      vad: await silero.VAD.load(),
+      turnDetection: 'realtime_llm',
       allowInterruptions: true,
       tools: tools,
     });
 
     const session = new voice.AgentSession();
-    
     await session.start({ agent, room: ctx.room });
     console.log('✅ Agent session started!');
 
@@ -220,21 +175,6 @@ export default defineAgent({
         }
       } catch (e) {
         // ignore
-      }
-    });
-
-    // Listen for Text Chat Messages and force the AI to respond
-    ctx.room.on(RoomEvent.ChatMessage, async (msg: any) => {
-      const text = msg.message;
-      if (text) {
-        console.log('📝 User sent text message:', text);
-        try {
-          // Avoid session.interrupt() as Gemini Realtime doesn't support truncation (causes 1011 error)
-          chatCtx.addMessage({ role: 'user', content: `[TEXT MESSAGE FROM USER]: ${text}` });
-          session.generateReply();
-        } catch (e) {
-          console.error('⚠️ Failed to reply to text message:', e);
-        }
       }
     });
   },

@@ -14,17 +14,7 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: "No audio file provided" }, { status: 400 });
     }
 
-    // Reject oversize payloads up front — we buffer the whole file in memory
-    // for the base64 encode below, so without a cap a malicious upload could
-    // OOM the worker.
-    const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // 25 MB
-    if (audioFile.size > MAX_AUDIO_BYTES) {
-      return Response.json(
-        { error: `Audio too large (max ${MAX_AUDIO_BYTES} bytes)` },
-        { status: 413 }
-      );
-    }
-
+    // Convert blob to base64
     const arrayBuffer = await audioFile.arrayBuffer();
     const base64Audio = Buffer.from(arrayBuffer).toString("base64");
     const mimeType = audioFile.type || "audio/webm";
