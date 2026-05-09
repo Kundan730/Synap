@@ -23,10 +23,13 @@ import {
   useTracks,
   useLocalParticipant,
   useParticipants,
+  useVoiceAssistant,
+  useTrackTranscription,
   TrackToggle,
   DisconnectButton,
+  useRoomContext,
 } from "@livekit/components-react";
-import { Track } from "livekit-client";
+import { Track, DataPacket_Kind } from "livekit-client";
 import "@livekit/components-styles";
 
 const MermaidRenderer = dynamic(() => import("@/components/MermaidRenderer"), { ssr: false });
@@ -119,7 +122,7 @@ export default function SessionPage() {
   return (
     <LiveKitRoom
       video={true}
-      audio={false}
+      audio={true}
       token={token}
       serverUrl={livekitUrl}
       data-lk-theme="default"
@@ -146,13 +149,7 @@ function ActiveSessionUI() {
   const [vizLoading, setVizLoading] = useState(false);
   const [topic, setTopic] = useState("General Learning");
   const [sessionTime, setSessionTime] = useState(0);
-  const [selectedVoice, setSelectedVoice] = useState("EXAVITQu4vr4xnSDxMaL"); // Sarah - reliable female
-  const [voiceMenuOpen, setVoiceMenuOpen] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const [isTranscribing, setIsTranscribing] = useState(false);
 
-  // Audio playback management
-  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const chatEnd = useRef<HTMLDivElement>(null);
 
@@ -163,59 +160,44 @@ function ActiveSessionUI() {
   const allVideoTracks = useTracks([Track.Source.Camera]);
   const myVideoTrack = allVideoTracks.find(t => t.participant.identity === localParticipant.identity);
   const aiVideoTrack = aiParticipant ? allVideoTracks.find(t => t.participant.identity === aiParticipant.identity) : null;
+  const isMicMuted = !localParticipant.isMicrophoneEnabled;
+
+  // Voice Assistant & Transcriptions
+  const voiceAssistant = useVoiceAssistant();
+  const agentTranscriptions = voiceAssistant.agentTranscriptions;
+
+  // Track user microphone for user transcriptions
+  const userAudioTracks = useTracks([Track.Source.Microphone]);
+  const userAudioTrack = userAudioTracks.find(t => t.participant.identity === localParticipant.identity);
+  const { segments: userSegments } = useTrackTranscription(userAudioTrack);
+
+  // Sync user voice transcripts into the chat panel
+  const processedUserSegIds = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    for (const seg of userSegments) {
+      if (seg.final && seg.text.trim() && !processedUserSegIds.current.has(seg.id)) {
+        processedUserSegIds.current.add(seg.id);
+        setMessages(m => [...m, { id: Date.now() + Math.random(), role: 'user', text: seg.text.trim(), time: NOW() }]);
+      }
+    }
+  }, [userSegments]);
+
+  // Function to stop the agent from speaking via data channel
+  const room = useRoomContext();
+  const stopAgentSpeaking = useCallback(async () => {
+    try {
+      const encoder = new TextEncoder();
+      const data = encoder.encode('STOP_SPEAKING');
+      await room.localParticipant.publishData(data, { reliable: true });
+      console.log('🛑 Stop command sent to agent');
+    } catch (e) {
+      console.error('Failed to send stop command:', e);
+    }
+  }, [room]);
 
   useEffect(() => { const t = setInterval(() => setSessionTime((s) => s + 1), 1000); return () => clearInterval(t); }, []);
   const formatTime = (s: number) => `${Math.floor(s / 60).toString().padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`;
   useEffect(() => { chatEnd.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, isTyping]);
-
-  const audioQueueRef = useRef<string[]>([]);
-  const isPlayingRef = useRef(false);
-
-  // ── Stop AI Speech ──
-  const stopSpeech = useCallback(() => {
-    audioQueueRef.current = [];
-    isPlayingRef.current = false;
-    if (currentAudioRef.current) {
-      currentAudioRef.current.pause();
-      currentAudioRef.current.src = "";
-      currentAudioRef.current = null;
-    }
-    window.speechSynthesis.cancel();
-    setIsSpeaking(false);
-  }, []);
-
-  // ── Play TTS ──
-  const playTTS = useCallback(async (text: string): Promise<void> => {
-    try {
-      const ttsRes = await fetch("/api/voice", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, voiceId: selectedVoice }) });
-      if (ttsRes.ok) {
-        const blobUrl = URL.createObjectURL(await ttsRes.blob());
-        const audio = new Audio(blobUrl);
-        currentAudioRef.current = audio;
-        setIsSpeaking(true);
-        
-        return new Promise((resolve) => {
-          audio.onended = () => { setIsSpeaking(false); currentAudioRef.current = null; resolve(); };
-          audio.onerror = () => { setIsSpeaking(false); currentAudioRef.current = null; resolve(); };
-          audio.play().catch(() => resolve());
-        });
-      }
-    } catch(e) { console.warn("TTS error:", e); }
-  }, [selectedVoice]);
-
-  const processAudioQueue = useCallback(async () => {
-    if (isPlayingRef.current || audioQueueRef.current.length === 0) return;
-    isPlayingRef.current = true;
-    
-    while (audioQueueRef.current.length > 0 && isPlayingRef.current) {
-      const text = audioQueueRef.current.shift();
-      if (text) {
-        await playTTS(text);
-      }
-    }
-    
-    isPlayingRef.current = false;
-  }, [playTTS]);
 
   // ── Refs for latest state ──
   const messagesRef = useRef(messages);
@@ -223,206 +205,6 @@ function ActiveSessionUI() {
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { topicRef.current = topic; }, [topic]);
 
-  // ── Send voice transcript to AI ──
-  const sendVoiceMessage = useCallback(async (transcript: string) => {
-    if (!transcript.trim()) return;
-
-    const currentMessages = messagesRef.current;
-    const currentTopic = topicRef.current;
-    const userMsg: ChatMsg = { id: Date.now(), role: "user", text: transcript, time: NOW() };
-    setMessages((m) => [...m, userMsg]);
-    if (currentMessages.length <= 2) setTopic(transcript.slice(0, 50));
-    setIsTyping(true);
-    setChatInput("");
-
-    try {
-      const allMsgs = [...currentMessages, userMsg].map((m) => ({ role: m.role === "ai" ? "assistant" : "user", text: m.text }));
-      const res = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: allMsgs, topic: currentTopic }) });
-      const reader = res.body?.getReader();
-      const decoder = new TextDecoder();
-      let fullText = "";
-      let processedLength = 0;
-      const aiMsgId = Date.now() + 1;
-      setMessages((m) => [...m, { id: aiMsgId, role: "ai", text: "", time: NOW() }]);
-      setIsTyping(false);
-
-      while (true) {
-        const { done, value } = await reader?.read()!;
-        if (done) break;
-        const chunk = decoder.decode(value);
-        const lines = chunk.split("\n").filter((l) => l.startsWith("data: "));
-        for (const line of lines) {
-          const data = line.slice(6);
-          if (data === "[DONE]") break;
-          try {
-            const parsed = JSON.parse(data);
-            if (parsed.text) {
-              fullText += parsed.text;
-              setMessages((m) => m.map((msg) => msg.id === aiMsgId ? { ...msg, text: stripMermaid(fullText) } : msg));
-              
-              // Chunking TTS by sentence
-              const cleanText = stripMermaid(fullText);
-              while (true) {
-                const unprocessed = cleanText.slice(processedLength);
-                const sentenceEnd = unprocessed.search(/[.!?](?:\s|$)/);
-                if (sentenceEnd !== -1) {
-                  const sentence = unprocessed.slice(0, sentenceEnd + 1).trim();
-                  if (sentence.length > 10) { // Ignore very short fragments
-                    audioQueueRef.current.push(sentence);
-                    processAudioQueue();
-                  }
-                  processedLength += sentenceEnd + 1;
-                } else {
-                  break;
-                }
-              }
-            }
-          } catch {}
-        }
-      }
-
-      const diagram = extractMermaid(fullText);
-      if (diagram) setMermaidCode(diagram);
-      
-      // Play any remaining text that didn't end with punctuation
-      const cleanText = stripMermaid(fullText);
-      const remaining = cleanText.slice(processedLength).trim();
-      if (remaining.length > 0) {
-        audioQueueRef.current.push(remaining);
-        processAudioQueue();
-      }
-    } catch (err) { setIsTyping(false); }
-  }, [processAudioQueue]);
-
-  // ── Spacebar Voice Control with MediaRecorder ──
-  const [isSpacePressed, setIsSpacePressed] = useState(false);
-  const spaceDownRef = useRef(false);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
-
-  const startVoiceCapture = useCallback(async () => {
-    stopSpeech(); // Interrupt AI
-    setIsTranscribing(true);
-    setChatInput("🎙️ Recording your voice...");
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaStreamRef.current = stream;
-      const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
-      audioChunksRef.current = [];
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
-
-      recorder.start();
-      mediaRecorderRef.current = recorder;
-    } catch (e) {
-      console.error("Mic access denied:", e);
-      setChatInput("Microphone access denied.");
-      setIsTranscribing(false);
-    }
-  }, [stopSpeech]);
-
-  const stopVoiceCapture = useCallback(async () => {
-    if (!mediaRecorderRef.current || mediaRecorderRef.current.state === "inactive") {
-      setIsTranscribing(false);
-      setChatInput("");
-      return;
-    }
-
-    return new Promise<void>((resolve) => {
-      const recorder = mediaRecorderRef.current!;
-
-      recorder.onstop = async () => {
-        // Stop mic stream
-        mediaStreamRef.current?.getTracks().forEach(t => t.stop());
-        mediaStreamRef.current = null;
-        mediaRecorderRef.current = null;
-
-        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-        audioChunksRef.current = [];
-
-        if (audioBlob.size < 1000) {
-          // Too short / empty
-          setChatInput("");
-          setIsTranscribing(false);
-          resolve();
-          return;
-        }
-
-        setChatInput("⏳ Thinking...");
-
-        try {
-          const formData = new FormData();
-          formData.append("audio", audioBlob, "recording.webm");
-
-          const res = await fetch("/api/transcribe", { method: "POST", body: formData });
-          const data = await res.json();
-
-          if (data.transcript && data.transcript.trim()) {
-            setChatInput("");
-            setIsTranscribing(false);
-            sendVoiceMessage(data.transcript.trim());
-          } else {
-            setChatInput("");
-            setIsTranscribing(false);
-          }
-        } catch (e) {
-          console.error("Transcription failed:", e);
-          setChatInput("Failed to hear that. Try again.");
-          setIsTranscribing(false);
-        }
-        resolve();
-      };
-
-      try {
-        recorder.stop();
-      } catch (e) {
-        setIsTranscribing(false);
-        setChatInput("");
-        resolve();
-      }
-    });
-  }, [sendVoiceMessage]);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === "Space" && !spaceDownRef.current && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") {
-        e.preventDefault();
-        spaceDownRef.current = true;
-        setIsSpacePressed(true);
-        startVoiceCapture();
-      }
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.code === "Space" && spaceDownRef.current) {
-        spaceDownRef.current = false;
-        setIsSpacePressed(false);
-        stopVoiceCapture();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
-    };
-  }, [startVoiceCapture, stopVoiceCapture]);
-
-  // ── Cleanup on unmount ──
-  useEffect(() => {
-    return () => {
-      stopSpeech();
-      mediaStreamRef.current?.getTracks().forEach(t => t.stop());
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-        try { mediaRecorderRef.current.stop(); } catch {}
-      }
-    };
-  }, [stopSpeech]);
 
   const generateVisualization = useCallback(async (vizTopic: string, context?: string) => {
     setVizLoading(true);
@@ -436,6 +218,50 @@ function ActiveSessionUI() {
     } catch (e) { console.error("Viz error:", e); }
     setVizLoading(false);
   }, []);
+
+  // Sync agent voice transcripts into the chat panel (after generateVisualization is declared)
+  const processedAgentSegIds = useRef<Set<string>>(new Set());
+  const lastVizTimestamp = useRef<number>(0);
+  const liveAgentMsgId = useRef<number | null>(null);
+  
+  useEffect(() => {
+    for (const seg of agentTranscriptions) {
+      const agentText = seg.text.trim();
+      if (!agentText) continue;
+
+      if (seg.final && !processedAgentSegIds.current.has(seg.id)) {
+        processedAgentSegIds.current.add(seg.id);
+        
+        // If we had a live message, update it to final. Otherwise add new.
+        if (liveAgentMsgId.current) {
+          setMessages(m => m.map(msg => 
+            msg.id === liveAgentMsgId.current ? { ...msg, text: agentText } : msg
+          ));
+          liveAgentMsgId.current = null;
+        } else {
+          setMessages(m => [...m, { id: Date.now() + Math.random(), role: 'ai', text: agentText, time: NOW() }]);
+        }
+
+        // Auto-generate whiteboard visualization (debounced to 10s)
+        const now = Date.now();
+        if (agentText.length > 60 && now - lastVizTimestamp.current > 10000) {
+          lastVizTimestamp.current = now;
+          generateVisualization(topic, agentText);
+        }
+      } else if (!seg.final) {
+        // Show live/partial transcript in real time
+        if (!liveAgentMsgId.current) {
+          const id = Date.now() + Math.random();
+          liveAgentMsgId.current = id;
+          setMessages(m => [...m, { id, role: 'ai', text: agentText + '...', time: NOW() }]);
+        } else {
+          setMessages(m => m.map(msg =>
+            msg.id === liveAgentMsgId.current ? { ...msg, text: agentText + '...' } : msg
+          ));
+        }
+      }
+    }
+  }, [agentTranscriptions, topic, generateVisualization]);
 
   const sendMessage = useCallback(async () => {
     const text = chatInput.trim();
@@ -479,10 +305,8 @@ function ActiveSessionUI() {
       const diagram = extractMermaid(fullText);
       if (diagram) setMermaidCode(diagram);
 
-      await playTTS(stripMermaid(fullText).slice(0, 500));
-
     } catch (err) { setIsTyping(false); }
-  }, [chatInput, messages, topic, playTTS]);
+  }, [chatInput, messages, topic]);
 
   const tabs: { key: Tab; icon: typeof MessageSquare; label: string }[] = [
     { key: "chat", icon: MessageSquare, label: "Chat" },
@@ -499,10 +323,8 @@ function ActiveSessionUI() {
             <ArrowLeft className="w-5 h-5" />
           </Link>
           <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-full border border-slate-200/80 shadow-sm">
-            <div className="w-7 h-7 rounded-full flex items-center justify-center bg-gradient-to-tr from-slate-700 to-slate-900 shadow-sm">
-              <Sparkles className="w-3.5 h-3.5 text-white" />
-            </div>
-            <span className="font-bold text-sm text-slate-800">LiveKit Session</span>
+            <Logo size="sm" iconOnly />
+            <span className="font-bold text-sm text-slate-800">Synap AI Session</span>
           </div>
           <div className="hidden sm:flex items-center gap-2 bg-emerald-50/80 backdrop-blur-sm px-3.5 py-2 rounded-full border border-emerald-100 shadow-sm">
             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -512,51 +334,6 @@ function ActiveSessionUI() {
         <div className="flex items-center gap-3">
           <span className="text-xs hidden sm:block truncate max-w-[200px] text-slate-500 bg-white border border-slate-200/80 px-4 py-2.5 rounded-full shadow-sm font-semibold">{topic}</span>
 
-          {/* Voice Selector */}
-          <div className="relative">
-            <button
-              onClick={() => setVoiceMenuOpen(!voiceMenuOpen)}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-white border border-slate-200/80 shadow-sm hover:bg-slate-50 transition-colors text-slate-600 text-xs font-semibold"
-            >
-              <Mic className="w-3.5 h-3.5" />
-              {VOICES.find(v => v.id === selectedVoice)?.name || "Voice"}
-            </button>
-            <AnimatePresence>
-              {voiceMenuOpen && (
-                <motion.div
-                  initial={{ opacity: 0, y: -8, scale: 0.95 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -8, scale: 0.95 }}
-                  transition={{ duration: 0.15 }}
-                  className="absolute right-0 top-14 w-64 bg-white/95 backdrop-blur-xl rounded-2xl border border-slate-200/80 shadow-[0_16px_40px_rgba(0,0,0,0.1)] p-2 z-50"
-                >
-                  <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400 px-3 pt-2 pb-1">AI Tutor Voice</p>
-                  {VOICES.map(voice => (
-                    <button
-                      key={voice.id}
-                      onClick={() => { setSelectedVoice(voice.id); setVoiceMenuOpen(false); }}
-                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all cursor-pointer ${
-                        selectedVoice === voice.id
-                          ? "bg-slate-900 text-white"
-                          : "hover:bg-slate-50 text-slate-700"
-                      }`}
-                    >
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-black ${
-                        selectedVoice === voice.id ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"
-                      }`}>
-                        {voice.gender === "Female" ? "♀" : "♂"}
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-[12px] font-bold">{voice.name}</p>
-                        <p className={`text-[10px] ${selectedVoice === voice.id ? "text-white/60" : "text-slate-400"}`}>{voice.style}</p>
-                      </div>
-                      {selectedVoice === voice.id && <div className="w-2 h-2 rounded-full bg-emerald-400" />}
-                    </button>
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
 
           <button className="w-11 h-11 flex items-center justify-center rounded-full bg-white border border-slate-200/80 shadow-sm hover:bg-slate-50 transition-colors text-slate-600" onClick={() => setSideOpen(!sideOpen)}>
             {sideOpen ? <PanelRightClose className="w-5 h-5" /> : <PanelRightOpen className="w-5 h-5" />}
@@ -579,11 +356,6 @@ function ActiveSessionUI() {
               </div>
               {vizLoading && <Loader2 className="w-4 h-4 animate-spin text-slate-700 ml-3" />}
             </div>
-            <button
-              onClick={() => generateVisualization(topic)}
-              className="px-5 py-2.5 text-xs font-bold rounded-xl flex items-center gap-2 transition-all bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300 hover:text-slate-900 shadow-sm active:scale-95 cursor-pointer">
-              <Sparkles className="w-4 h-4 text-slate-700" /> Regenerate
-            </button>
           </div>
           
           {/* Whiteboard Canvas */}
@@ -690,27 +462,22 @@ function ActiveSessionUI() {
           <TrackToggle source={Track.Source.Microphone} className="w-11 h-11 rounded-[18px] border-0 flex items-center justify-center transition-all cursor-pointer bg-white text-slate-700 hover:bg-slate-50 data-[state=off]:bg-red-500 data-[state=off]:text-white shadow-sm" />
           
           <div className="h-11 min-w-[140px] px-4 rounded-[18px] bg-white/50 flex items-center justify-center gap-2 transition-all">
-            <div className={`w-2.5 h-2.5 rounded-full transition-colors ${isSpacePressed ? 'bg-red-500 animate-pulse' : isTranscribing ? 'bg-amber-500 animate-pulse' : 'bg-slate-300'}`} />
-            <span className={`text-[10px] font-bold uppercase tracking-widest ${isSpacePressed ? 'text-red-600' : isTranscribing ? 'text-amber-600' : 'text-slate-400'}`}>
-              {isSpacePressed ? '● Recording' : isTranscribing ? 'Transcribing...' : 'Space to Talk'}
-            </span>
+            <AgentStatusIndicator isMicMuted={isMicMuted} />
           </div>
+
+          {/* Stop Speaking Button — only visible when agent is speaking */}
+          {voiceAssistant.state === 'speaking' && (
+            <button
+              onClick={stopAgentSpeaking}
+              className="w-11 h-11 rounded-[18px] border-0 flex items-center justify-center transition-all cursor-pointer bg-orange-500 text-white hover:bg-orange-600 shadow-sm animate-pulse"
+              title="Stop AI from speaking"
+            >
+              <Square className="w-4 h-4 fill-current" />
+            </button>
+          )}
         </div>
 
         <div className="w-[1px] h-6 bg-black/10 mx-1"></div>
-
-        {/* Stop AI Speech */}
-        {isSpeaking && (
-          <button
-            onClick={stopSpeech}
-            className="w-11 h-11 rounded-[22px] border-0 flex items-center justify-center transition-all cursor-pointer bg-amber-50 text-amber-600 hover:bg-amber-500 hover:text-white shadow-sm animate-pulse"
-            title="Stop AI Speech"
-          >
-            <Square className="w-4 h-4" />
-          </button>
-        )}
-
-        {isSpeaking && <div className="w-[1px] h-6 bg-black/10 mx-1"></div>}
 
         {/* Video Toggle */}
         <TrackToggle source={Track.Source.Camera} className="w-11 h-11 rounded-[22px] border-0 flex items-center justify-center transition-all cursor-pointer bg-white/50 text-slate-700 hover:bg-white data-[state=off]:bg-red-500 data-[state=off]:text-white shadow-sm" />
@@ -718,10 +485,51 @@ function ActiveSessionUI() {
         <div className="w-[1px] h-6 bg-black/10 mx-1"></div>
 
         {/* End Session */}
-        <DisconnectButton onClick={stopSpeech} className="w-11 h-11 rounded-[22px] border-0 bg-red-50 text-red-600 flex items-center justify-center hover:bg-red-500 hover:text-white transition-all cursor-pointer shadow-sm group">
+        <DisconnectButton className="w-11 h-11 rounded-[22px] border-0 bg-red-50 text-red-600 flex items-center justify-center hover:bg-red-500 hover:text-white transition-all cursor-pointer shadow-sm group">
           <PhoneOff className="w-4 h-4 transition-transform group-hover:scale-110" />
         </DisconnectButton>
       </div>
     </div>
   );
 }
+
+function AgentStatusIndicator({ isMicMuted }: { isMicMuted: boolean }) {
+  const { state } = useVoiceAssistant();
+  
+  const isListening = state === 'listening' && !isMicMuted;
+  const isThinking = state === 'thinking';
+  const isSpeaking = state === 'speaking';
+  const isInitializing = state === 'initializing';
+  const isActive = isListening || isThinking || isSpeaking;
+
+  let text = 'Waiting for Agent...';
+  let dotColor = 'bg-slate-400';
+
+  if (isMicMuted && state === 'listening') { text = 'Mic Muted'; dotColor = 'bg-red-400'; }
+  else if (isListening) { text = 'Listening'; dotColor = 'bg-emerald-500'; }
+  else if (isThinking) { text = 'Thinking'; dotColor = 'bg-amber-500'; }
+  else if (isSpeaking) { text = 'Speaking'; dotColor = 'bg-blue-500'; }
+  else if (isInitializing) { text = 'Connecting'; dotColor = 'bg-slate-500'; }
+
+  return (
+    <div className="flex items-center gap-3">
+      <div className="relative flex items-center justify-center w-8 h-8">
+        {isActive && (
+          <>
+            <span className={`absolute inset-0 rounded-full opacity-20 animate-ping ${
+              isSpeaking ? 'bg-blue-400' : isThinking ? 'bg-amber-400' : 'bg-emerald-400'
+            }`} style={{ animationDuration: isSpeaking ? '1s' : '2s' }} />
+            <span className={`absolute inset-[3px] rounded-full opacity-30 animate-ping ${
+              isSpeaking ? 'bg-blue-400' : isThinking ? 'bg-amber-400' : 'bg-emerald-400'
+            }`} style={{ animationDuration: isSpeaking ? '1.3s' : '2.5s' }} />
+          </>
+        )}
+        <span className={`relative z-10 w-3 h-3 rounded-full transition-all duration-300 shadow-sm ${dotColor} ${isActive ? 'scale-100' : 'scale-75'}`} />
+      </div>
+      <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-500 whitespace-nowrap">
+        {text}
+      </span>
+    </div>
+  );
+}
+
