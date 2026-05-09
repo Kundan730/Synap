@@ -8,6 +8,7 @@
     "dev:agent": "tsx agent.ts dev",
     "build": "next build",
     "start": "next start",
+    "start:agent": "tsx agent.ts start",
     "lint": "eslint",
     "agent": "tsx agent.ts dev"
   },
