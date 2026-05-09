@@ -28,11 +28,16 @@ import {
   TrackToggle,
   DisconnectButton,
   useRoomContext,
+  useDataChannel,
+  useChat,
 } from "@livekit/components-react";
 import { Track, DataPacket_Kind } from "livekit-client";
 import "@livekit/components-styles";
 
 const MermaidRenderer = dynamic(() => import("@/components/MermaidRenderer"), { ssr: false });
+import DesmosRenderer from "@/components/DesmosRenderer";
+import HTMLAppletRenderer from "@/components/HTMLAppletRenderer";
+import VideoRenderer from "@/components/VideoRenderer";
 
 type Tab = "chat" | "notes" | "quiz" | "summary";
 interface ChatMsg { id: number; role: "user" | "ai"; text: string; time: string; }
@@ -149,6 +154,10 @@ function ActiveSessionUI() {
   const [vizLoading, setVizLoading] = useState(false);
   const [topic, setTopic] = useState("General Learning");
   const [sessionTime, setSessionTime] = useState(0);
+  const [viewMode, setViewMode] = useState<"mermaid" | "desmos" | "html" | "video">("mermaid");
+  const [desmosEquations, setDesmosEquations] = useState<string[]>([]);
+  const [htmlAppletCode, setHtmlAppletCode] = useState<string>("");
+  const [videoId, setVideoId] = useState<string>("");
 
 
   const chatEnd = useRef<HTMLDivElement>(null);
@@ -161,6 +170,7 @@ function ActiveSessionUI() {
   const myVideoTrack = allVideoTracks.find(t => t.participant.identity === localParticipant.identity);
   const aiVideoTrack = aiParticipant ? allVideoTracks.find(t => t.participant.identity === aiParticipant.identity) : null;
   const isMicMuted = !localParticipant.isMicrophoneEnabled;
+  const { send: sendChat } = useChat();
 
   // Voice Assistant & Transcriptions
   const voiceAssistant = useVoiceAssistant();
@@ -194,6 +204,49 @@ function ActiveSessionUI() {
       console.error('Failed to send stop command:', e);
     }
   }, [room]);
+
+  const generateApplet = useCallback(async (appletTopic: string) => {
+    setVizLoading(true);
+    setViewMode("html");
+    setHtmlAppletCode(""); // Show loading state
+    try {
+      const res = await fetch("/api/visualize", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic: appletTopic, type: "applet" }),
+      });
+      const data = await res.json();
+      if (data.htmlCode) {
+        setHtmlAppletCode(data.htmlCode);
+      }
+    } catch (e) {
+      console.error("Applet gen error:", e);
+    }
+    setVizLoading(false);
+  }, []);
+
+  // Listen for explicit Tool Calls from the Agent
+  useDataChannel((msg) => {
+    try {
+      const decoded = new TextDecoder().decode(msg.payload);
+      const payload = JSON.parse(decoded);
+      if (payload.type === 'TOOL_CALL') {
+        if (payload.tool === 'show_desmos_graph') {
+          setDesmosEquations(payload.data);
+          setViewMode("desmos");
+        } else if (payload.tool === 'show_mermaid_diagram') {
+          setMermaidCode(payload.data);
+          setViewMode("mermaid");
+        } else if (payload.tool === 'generate_interactive_applet') {
+          generateApplet(payload.data);
+        } else if (payload.tool === 'play_educational_video') {
+          setVideoId(payload.data);
+          setViewMode("video");
+        }
+      }
+    } catch (e) {
+      // ignore parse errors for non-JSON data
+    }
+  });
 
   useEffect(() => { const t = setInterval(() => setSessionTime((s) => s + 1), 1000); return () => clearInterval(t); }, []);
   const formatTime = (s: number) => `${Math.floor(s / 60).toString().padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`;
@@ -241,22 +294,15 @@ function ActiveSessionUI() {
         } else {
           setMessages(m => [...m, { id: Date.now() + Math.random(), role: 'ai', text: agentText, time: NOW() }]);
         }
-
-        // Auto-generate whiteboard visualization (debounced to 10s)
-        const now = Date.now();
-        if (agentText.length > 60 && now - lastVizTimestamp.current > 10000) {
-          lastVizTimestamp.current = now;
-          generateVisualization(topic, agentText);
-        }
       } else if (!seg.final) {
         // Show live/partial transcript in real time
         if (!liveAgentMsgId.current) {
           const id = Date.now() + Math.random();
           liveAgentMsgId.current = id;
-          setMessages(m => [...m, { id, role: 'ai', text: agentText + '...', time: NOW() }]);
+          setMessages(m => [...m, { id, role: 'ai', text: agentText, time: NOW() }]);
         } else {
           setMessages(m => m.map(msg =>
-            msg.id === liveAgentMsgId.current ? { ...msg, text: agentText + '...' } : msg
+            msg.id === liveAgentMsgId.current ? { ...msg, text: agentText } : msg
           ));
         }
       }
@@ -266,47 +312,21 @@ function ActiveSessionUI() {
   const sendMessage = useCallback(async () => {
     const text = chatInput.trim();
     if (!text) return;
+    
+    // We add it to our local messages array for instant UI feedback
     const userMsg: ChatMsg = { id: Date.now(), role: "user", text, time: NOW() };
     setMessages((m) => [...m, userMsg]);
     setChatInput("");
-    setIsTyping(true);
     if (messages.length <= 2) setTopic(text.slice(0, 50));
 
     try {
-      const allMsgs = [...messages, userMsg].map((m) => ({ role: m.role === "ai" ? "assistant" : "user", text: m.text }));
-      const res = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: allMsgs, topic }) });
-      
-      const reader = res.body?.getReader();
-      const decoder = new TextDecoder();
-      let fullText = "";
-      const aiMsgId = Date.now() + 1;
-
-      setMessages((m) => [...m, { id: aiMsgId, role: "ai", text: "", time: NOW() }]);
-      setIsTyping(false);
-
-      while (true) {
-        const { done, value } = await reader?.read()!;
-        if (done) break;
-        const chunk = decoder.decode(value);
-        const lines = chunk.split("\n").filter((l) => l.startsWith("data: "));
-        for (const line of lines) {
-          const data = line.slice(6);
-          if (data === "[DONE]") break;
-          try {
-            const parsed = JSON.parse(data);
-            if (parsed.text) {
-              fullText += parsed.text;
-              setMessages((m) => m.map((msg) => msg.id === aiMsgId ? { ...msg, text: stripMermaid(fullText) } : msg));
-            }
-          } catch {}
-        }
-      }
-
-      const diagram = extractMermaid(fullText);
-      if (diagram) setMermaidCode(diagram);
-
-    } catch (err) { setIsTyping(false); }
-  }, [chatInput, messages, topic]);
+      // Send the message directly into the LiveKit Room chat!
+      // The Gemini voice agent automatically listens to this channel and will respond with voice/tools.
+      await sendChat(text);
+    } catch (error) {
+      console.error("Failed to send text to agent:", error);
+    }
+  }, [chatInput, sendChat, messages]);
 
   const tabs: { key: Tab; icon: typeof MessageSquare; label: string }[] = [
     { key: "chat", icon: MessageSquare, label: "Chat" },
@@ -361,26 +381,36 @@ function ActiveSessionUI() {
           {/* Whiteboard Canvas */}
           <div className="flex-1 overflow-auto flex items-center justify-center p-8 bg-slate-50 pt-28 pb-8">
             <div className="w-full h-full border-2 border-dashed border-slate-200 rounded-[24px] flex items-center justify-center p-8 bg-white relative shadow-sm">
-              <MermaidRenderer code={mermaidCode} className="w-full max-w-5xl" />
+              {viewMode === "desmos" && <DesmosRenderer equations={desmosEquations} />}
+              {viewMode === "html" && (
+                htmlAppletCode ? <HTMLAppletRenderer htmlCode={htmlAppletCode} /> : (
+                  <div className="flex flex-col items-center justify-center text-slate-400 gap-4">
+                    <Loader2 className="w-12 h-12 animate-spin text-indigo-500" />
+                    <p className="font-bold tracking-widest uppercase text-xs">Compiling Simulation...</p>
+                  </div>
+                )
+              )}
+              {viewMode === "video" && <VideoRenderer videoId={videoId} />}
+              {viewMode === "mermaid" && <MermaidRenderer code={mermaidCode} className="w-full max-w-5xl" />}
             </div>
           </div>
 
           {/* Floating Local Video (Picture-in-Picture) */}
-          <div className="absolute bottom-8 left-8 w-60 h-40 bg-black rounded-[24px] shadow-[0_16px_40px_rgb(0,0,0,0.4)] ring-4 ring-slate-700 overflow-hidden z-20 group transition-transform hover:scale-105">
+          <motion.div drag dragMomentum={false} className="absolute bottom-8 left-8 w-40 h-28 cursor-grab active:cursor-grabbing bg-black rounded-2xl shadow-xl ring-2 ring-slate-700 overflow-hidden z-50 group transition-transform hover:scale-105">
             {myVideoTrack && !myVideoTrack.publication?.isMuted ? (
-              <VideoTrack trackRef={myVideoTrack} className="w-full h-full object-cover" />
+              <VideoTrack trackRef={myVideoTrack} className="w-full h-full object-cover pointer-events-none" />
             ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center bg-[#0f172a]">
-                <div className="w-14 h-14 rounded-full bg-slate-800/50 flex items-center justify-center mb-3 ring-1 ring-slate-700">
-                  <VideoOff className="w-6 h-6 text-slate-500" />
+              <div className="w-full h-full flex flex-col items-center justify-center bg-[#0f172a] pointer-events-none">
+                <div className="w-10 h-10 rounded-full bg-slate-800/50 flex items-center justify-center mb-2 ring-1 ring-slate-700">
+                  <VideoOff className="w-4 h-4 text-slate-500" />
                 </div>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em]">Camera Off</p>
+                <p className="text-[9px] text-slate-400 font-bold uppercase tracking-[0.2em]">Camera Off</p>
               </div>
             )}
-            <div className="absolute bottom-3 left-3 bg-black/50 backdrop-blur-md px-3 py-1.5 rounded-xl text-[10px] font-bold text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div> You
+            <div className="absolute bottom-2 left-2 bg-black/50 backdrop-blur-md px-2 py-1 rounded-lg text-[9px] font-bold text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1.5 pointer-events-none">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></div> You
             </div>
-          </div>
+          </motion.div>
         </div>
 
         {/* Right sidebar */}
@@ -407,9 +437,9 @@ function ActiveSessionUI() {
                 {activeTab === "chat" && (
                   <div className="space-y-6">
                     {messages.map((m) => (
-                      <div key={m.id} className={`flex flex-col ${m.role === "user" ? "items-end" : "items-start"}`}>
+                      <motion.div layout initial={{ opacity: 0, y: 10, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.2 }} key={m.id} className={`flex flex-col ${m.role === "user" ? "items-end" : "items-start"}`}>
                         <div className={`max-w-[85%] rounded-[24px] px-5 py-4 shadow-sm ${m.role === "user" ? "bg-slate-900 text-white rounded-tr-[6px]" : "bg-white border border-slate-200/80 text-slate-800 rounded-tl-[6px]"}`}>
-                          <div className="text-sm leading-relaxed whitespace-pre-wrap font-medium">
+                          <motion.div layout className="text-sm leading-relaxed whitespace-pre-wrap font-medium">
                             {m.role === "ai" ? (
                               <div className="prose prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-li:my-0 text-slate-800">
                                 <ReactMarkdown>{m.text}</ReactMarkdown>
@@ -417,10 +447,10 @@ function ActiveSessionUI() {
                             ) : (
                               <p>{m.text}</p>
                             )}
-                          </div>
+                          </motion.div>
                           <p className={`text-[10px] mt-2 font-bold text-right ${m.role === 'user' ? 'text-zinc-300' : 'text-slate-400'}`}>{m.time}</p>
                         </div>
-                      </div>
+                      </motion.div>
                     ))}
                     {isTyping && (
                       <div className="flex justify-start">

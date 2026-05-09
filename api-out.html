@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Stellar Symphony</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+    <style>
+        body { margin: 0; padding: 0; overflow: hidden; background-color: #000000; }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+    <script>
+        let sun;
+        let planets = [];
+        let numPlanets = 8;
+        let maxPlanetSize = 30;
+        let minPlanetSize = 8;
+        let maxOrbitRadius = 350;
+        let minOrbitRadius = 80;
+        let starfield = [];
+        let numStars = 500;
+        let comet;
+
+        class CelestialBody {
+            constructor(radius, distance, color, orbitSpeed, angleOffset = 0) {
+                this.radius = radius;
+                this.distance = distance;
+                this.color = color;
+                this.orbitSpeed = orbitSpeed;
+                this.angle = angleOffset;
+                this.trail = [];
+                this.maxTrailLength = 100;
+            }
+
+            show() {
+                push();
+                noStroke();
+                fill(this.color);
+                sphere(this.radius);
+                pop();
+            }
+
+            orbit() {
+                this.angle += this.orbitSpeed;
+            }
+
+            updateTrail(x, y, z) {
+                let p = createVector(x, y, z);
+                this.trail.push(p);
+                if (this.trail.length > this.maxTrailLength) {
+                    this.trail.shift();
+                }
+            }
+
+            showTrail() {
+                if (this.trail.length > 1) {
+                    noFill();
+                    strokeWeight(1.5);
+                    beginShape();
+                    for (let i = 0; i < this.trail.length; i++) {
+                        let alpha = map(i, 0, this.trail.length, 0, 255);
+                        stroke(red(this.color), green(this.color), blue(this.color), alpha);
+                        vertex(this.trail[i].x, this.trail[i].y, this.trail[i].z);
+                    }
+                    endShape();
+                }
+            }
+        }
+
+        class Star {
+            constructor() {
+                this.x = random(-width / 2, width / 2);
+                this.y = random(-height / 2, height / 2);
+                this.z = random(-width / 2, width / 2);
+                this.radius = random(0.5, 2);
+                this.color = color(255, random(200, 255), random(200, 255), random(100, 255));
+            }
+
+            show() {
+                push();
+                translate(this.x, this.y, this.z);
+                noStroke();
+                fill(this.color);
+                sphere(this.radius);
+                pop();
+            }
+        }
+
+        class Comet {
+            constructor() {
+                this.pos = createVector(random(-width, width), random(-height, height), random(-width, width));
+                this.vel = p5.Vector.random3D().mult(random(2, 5));
+                this.acc = createVector(0, 0, 0);
+                this.radius = random(3, 8);
+                this.color = color(150, 200, 255);
+                this.trail = [];
+                this.maxTrailLength = 80;
+                this.tailLength = 30;
+                this.tailSpread = 15;
+            }
+
+            applyForce(force) {
+                this.acc.add(force);
+            }
+
+            update() {
+                this.vel.add(this.acc);
+                this.pos.add(this.vel);
+                this.acc.mult(0); // Reset acceleration
+
+                // Wrap around screen
+                if (this.pos.x > width / 2) this.pos.x = -width / 2;
+                if (this.pos.x < -width / 2) this.pos.x = width / 2;
+                if (this.pos.y > height / 2) this.pos.y = -height / 2;
+                if (this.pos.y < -height / 2) this.pos.y = height / 2;
+                if (this.pos.z > width / 2) this.pos.z = -width / 2;
+                if (this.pos.z < -width / 2) this.pos.z = width / 2;
+                
+                this.updateTrail(this.pos.x, this.pos.y, this.pos.z);
+            }
+
+            updateTrail(x, y, z) {
+                let p = createVector(x, y, z);
+                this.trail.push(p);
+                if (this.trail.length > this.maxTrailLength) {
+                    this.trail.shift();
+                }
+            }
+
+            show() {
+                push();
+                translate(this.pos.x, this.pos.y, this.pos.z);
+                noStroke();
+                fill(this.color);
+                sphere(this.radius);
+                pop();
+
+                this.showTail();
+            }
+
+            showTail() {
+                if (this.trail.length > 1) {
+                    noFill();
+                    strokeWeight(1);
+                    beginShape(TRIANGLE_STRIP);
+                    for (let i = 0; i < this.trail.length; i++) {
+                        let alpha = map(i, 0, this.trail.length, 0, 200);
+                        let tailColor = color(red(this.color), green(this.color), blue(this.color), alpha);
+                        stroke(tailColor);
+                        fill(tailColor);
+
+                        let p = this.trail[i];
+                        let dir = p5.Vector.sub(this.pos, p).normalize(); // Direction from trail point to current position
+                        dir.rotate(PI / 2); // Perpendicular to the direction of movement for width
+
+                        // Calculate offset for the two vertices
+                        let offset1 = p5.Vector.mult(dir, map(i, 0, this.trail.length, 0, this.tailSpread));
+                        let offset2 = p5.Vector.mult(dir, -map(i, 0, this.trail.length, 0, this.tailSpread));
+
+                        vertex(p.x + offset1.x, p.y + offset1.y, p.z + offset1.z);
+                        vertex(p.x + offset2.x, p.y + offset2.y, p.z + offset2.z);
+                    }
+                    endShape();
+                }
+            }
+        }
+
+        function setup() {
+            createCanvas(windowWidth, windowHeight, WEBGL);
+            
+            // Sun
+            sun = new CelestialBody(50, 0, color(255, 150, 0), 0); // Sun has no orbit distance
+
+            // Planets
+            for (let i = 0; i < numPlanets; i++) {
+                let r = map(i, 0, numPlanets, minPlanetSize, maxPlanetSize);
+                let d = map(i, 0, numPlanets, minOrbitRadius, maxOrbitRadius);
+                let c = color(random(100, 255), random(100, 255), random(100, 255));
+                let s = random(0.005, 0.02) * (i % 2 === 0 ? 1 : -1); // Vary speed and direction
+                let angleOffset = random(TWO_PI);
+                planets.push(new CelestialBody(r, d, c, s, angleOffset));
+            }
+
+            // Stars
+            for (let i = 0; i < numStars; i++) {
+                starfield.push(new Star());
+            }
+
+            // Comet
+            comet = new Comet();
+        }
+
+        function draw() {
+            background(0);
+
+            // Camera control
+            orbitControl(); 
+
+            // Draw stars
+            for (let star of starfield) {
+                star.show();
+            }
+
+            // Draw Sun
+            push();
+            pointLight(255, 200, 150, 0, 0, 0); // Light source at the sun's position
+            ambientLight(50); // General ambient light
+            emissiveMaterial(255, 150, 0); // Make sun glow
+            sun.show();
+            pop();
+
+            // Draw Planets
+            for (let planet of planets) {
+                let x = cos(planet.angle) * planet.distance;
+                let y = sin(planet.angle) * planet.distance;
+                let z = 0; // Keeping orbits on a 2D plane for simplicity, can add z for more complex orbits
+
+                push();
+                translate(x, y, z);
+                
+                // Add self-rotation for planets
+                rotateY(frameCount * 0.01 + planet.angle); 
+                rotateX(frameCount * 0.005);
+                
+                specularMaterial(red(planet.color), green(planet.color), blue(planet.color));
+                shininess(50);
+                planet.show();
+                pop();
+
+                // Draw orbit path
+                noFill();
+                stroke(planet.color, 50);
+                strokeWeight(0.5);
+                ellipse(0, 0, planet.distance * 2, planet.distance * 2);
+
+                // Update and show planet trail
+                planet.updateTrail(x, y, z);
+                planet.showTrail();
+
+                planet.orbit();
+            }
+
+            // Draw Comet
+            let sunGravity = p5.Vector.sub(createVector(0,0,0), comet.pos);
+            sunGravity.normalize();
+            sunGravity.mult(0.1); // Adjust gravity strength
+            comet.applyForce(sunGravity);
+            comet.update();
+            comet.show();
+        }
+
+        function windowResized() {
+            resizeCanvas(windowWidth, windowHeight);
+        }
+    </script>
+</body>
+</html>
+

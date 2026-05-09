@@ -1,5 +1,6 @@
-import { cli, defineAgent, voice, WorkerOptions } from '@livekit/agents';
+import { cli, defineAgent, voice, WorkerOptions, llm } from '@livekit/agents';
 import * as google from '@livekit/agents-plugin-google';
+import { z } from 'zod';
 import * as dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -26,7 +27,15 @@ STYLE RULES:
 IMPORTANT:
 - You are an AI tutor that helps people learn ANY subject: programming, science, math, history, languages, etc.
 - If the learner asks you to explain something in depth, DO explain it fully. Don't cut it short.
-- If the user just says "hi" or "ok", keep it brief.`;
+- If the user just says "hi" or "ok", keep it brief.
+- YOU HAVE DIRECT ACCESS TO THE USER'S WHITEBOARD via your tools! Do NOT ever say you cannot execute code or show things. You absolutely can.
+- VISUALIZATIONS: You MUST use your tools to display visual content on the whiteboard. 
+  - Math/Equations -> Use show_desmos_graph
+  - Flowcharts/Architecture -> Use show_mermaid_diagram
+  - Interactive Physics/3D/Simulations/Animations -> Use generate_interactive_applet
+  
+CRITICAL RULE FOR CODE/SIMULATIONS:
+If the user asks for a simulation, animation, or interactive applet (like the solar system or a physics engine), you MUST use the \`generate_interactive_applet\` tool and provide the topic. NEVER try to write the code yourself. NEVER output raw code blocks in your spoken/chat response. ALWAYS delegate it using the tool so it appears on the whiteboard immediately!`;
 
 export default defineAgent({
   entry: async (ctx) => {
@@ -41,11 +50,63 @@ export default defineAgent({
       temperature: 0.7,
     });
 
+    const tools: llm.ToolContext = {
+      show_desmos_graph: llm.tool({
+        description: 'Display an interactive Desmos mathematical graph on the whiteboard. Use this when explaining math functions, algebra, or geometry. Pass equations in LaTeX or plain math format.',
+        parameters: z.object({
+          equations: z.array(z.string()).describe('List of equations to plot, e.g., ["y=x^2", "y=\\\\sin(x)"]')
+        }),
+        execute: async ({ equations }, _) => {
+          console.log('📈 LLM called show_desmos_graph:', equations);
+          const payload = new TextEncoder().encode(JSON.stringify({ type: 'TOOL_CALL', tool: 'show_desmos_graph', data: equations }));
+          await ctx.room.localParticipant?.publishData(payload, { reliable: true });
+          return 'Graph successfully displayed to the user.';
+        }
+      }),
+      show_mermaid_diagram: llm.tool({
+        description: 'Draw a flowchart, architecture diagram, or state machine using Mermaid.js syntax.',
+        parameters: z.object({
+          code: z.string().describe('The Mermaid.js code. Do not include markdown code block backticks (```mermaid). Just the raw syntax.')
+        }),
+        execute: async ({ code }, _) => {
+          console.log('📊 LLM called show_mermaid_diagram');
+          const payload = new TextEncoder().encode(JSON.stringify({ type: 'TOOL_CALL', tool: 'show_mermaid_diagram', data: code }));
+          await ctx.room.localParticipant?.publishData(payload, { reliable: true });
+          return 'Diagram displayed.';
+        }
+      }),
+      generate_interactive_applet: llm.tool({
+        description: 'Trigger the generation of an interactive, real-time 3D or 2D visualization applet on the whiteboard. Use this whenever the user asks for a simulation, physics demo, or interactive animation.',
+        parameters: z.object({
+          topic: z.string().describe('A highly detailed prompt describing what the simulation should do, e.g., "A p5.js simulation of the solar system with orbiting planets".')
+        }),
+        execute: async ({ topic }, _) => {
+          console.log('🎮 LLM called generate_interactive_applet for topic:', topic);
+          const payload = new TextEncoder().encode(JSON.stringify({ type: 'TOOL_CALL', tool: 'generate_interactive_applet', data: topic }));
+          await ctx.room.localParticipant?.publishData(payload, { reliable: true });
+          return `Simulation for '${topic}' is being generated in the background and will appear on the whiteboard shortly. Tell the user it's loading.`;
+        }
+      }),
+      play_educational_video: llm.tool({
+        description: 'Play a relevant educational video (e.g. YouTube video on the topic) directly on the whiteboard.',
+        parameters: z.object({
+          youtubeVideoId: z.string().describe('The exact 11-character YouTube Video ID (e.g. dQw4w9WgXcQ).'),
+        }),
+        execute: async ({ youtubeVideoId }, _) => {
+          console.log('🎥 LLM called play_educational_video:', youtubeVideoId);
+          const payload = new TextEncoder().encode(JSON.stringify({ type: 'TOOL_CALL', tool: 'play_educational_video', data: youtubeVideoId }));
+          await ctx.room.localParticipant?.publishData(payload, { reliable: true });
+          return 'Video is playing.';
+        }
+      }),
+    };
+
     const agent = new voice.Agent({
       llm: realtimeModel,
       instructions: TUTOR_SYSTEM_PROMPT,
       turnDetection: 'realtime_llm',
       allowInterruptions: true,
+      tools: tools,
     });
 
     const session = new voice.AgentSession();
@@ -73,14 +134,6 @@ export default defineAgent({
       } catch (e) {
         // ignore
       }
-    });
-
-    // Log session events for debugging
-    session.on('error', (ev) => {
-      console.error('❌ Session error:', ev);
-    });
-    session.on('close', (ev) => {
-      console.log('📴 Session closed:', ev);
     });
   },
 });
