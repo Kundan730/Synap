@@ -61,11 +61,11 @@ export default function SessionPage() {
   const [token, setToken] = useState("");
   const [roomName, setRoomName] = useState("synap-lab-1");
   const [username, setUsername] = useState("Student");
-  
+
   // Try to load env vars directly if available
   const livekitUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL;
 
-  // Fetch token to join room
+  // Fetch token to join session
   const connectToRoom = async () => {
     if (!livekitUrl) {
       alert("NEXT_PUBLIC_LIVEKIT_URL is not set in your .env.local!");
@@ -87,7 +87,7 @@ export default function SessionPage() {
 
   // Pre-join screen
   if (token === "") {
-    
+
     return (
       <div className="h-screen flex items-center justify-center bg-slate-50 relative">
         <Link href="/" className="absolute top-8 left-8 flex items-center gap-2 text-slate-500 hover:text-zinc-900 transition-colors font-medium">
@@ -100,28 +100,28 @@ export default function SessionPage() {
           <p className="text-base mb-10 text-slate-500 leading-relaxed">
             Connect to the real-time AI Whiteboard.
           </p>
-          
+
           <div className="space-y-4 mb-8 text-left">
             <div>
               <label className="block text-xs font-semibold mb-1 text-slate-500">Your Name</label>
-              <input value={username} onChange={e => setUsername(e.target.value)} 
+              <input value={username} onChange={e => setUsername(e.target.value)}
                 className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white outline-none focus:border-zinc-700 transition-colors" />
             </div>
             <div>
               <label className="block text-xs font-semibold mb-1 text-slate-500">Room Name</label>
-              <input value={roomName} onChange={e => setRoomName(e.target.value)} 
+              <input value={roomName} onChange={e => setRoomName(e.target.value)}
                 className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white outline-none focus:border-zinc-700 transition-colors" />
             </div>
           </div>
 
           <button onClick={connectToRoom} className="btn-primary w-full justify-center py-3.5">
-            Join Room
+            Join Session
           </button>
-          
+
           {!livekitUrl && (
-             <div className="mt-4 p-3 rounded-lg bg-red-50 text-red-600 text-xs text-left">
-               ⚠️ Missing LIVEKIT API Keys in .env.local
-             </div>
+            <div className="mt-4 p-3 rounded-lg bg-red-50 text-red-600 text-xs text-left">
+              ⚠️ Missing LIVEKIT API Keys in .env.local
+            </div>
           )}
         </div>
       </div>
@@ -162,7 +162,7 @@ function ActiveSessionUI() {
   const [desmosEquations, setDesmosEquations] = useState<string[]>([]);
   const [htmlAppletCode, setHtmlAppletCode] = useState<string>("");
   const [videoId, setVideoId] = useState<string>("");
-  
+
   // New Interactive States
   const [sandboxCode, setSandboxCode] = useState<string>("");
   const [sandboxLang, setSandboxLang] = useState<string>("react");
@@ -298,7 +298,7 @@ function ActiveSessionUI() {
   const processedAgentSegIds = useRef<Set<string>>(new Set());
   const lastVizTimestamp = useRef<number>(0);
   const liveAgentMsgId = useRef<number | null>(null);
-  
+
   useEffect(() => {
     for (const seg of agentTranscriptions) {
       const agentText = seg.text.trim();
@@ -306,10 +306,10 @@ function ActiveSessionUI() {
 
       if (seg.final && !processedAgentSegIds.current.has(seg.id)) {
         processedAgentSegIds.current.add(seg.id);
-        
+
         // If we had a live message, update it to final. Otherwise add new.
         if (liveAgentMsgId.current) {
-          setMessages(m => m.map(msg => 
+          setMessages(m => m.map(msg =>
             msg.id === liveAgentMsgId.current ? { ...msg, text: agentText } : msg
           ));
           liveAgentMsgId.current = null;
@@ -334,7 +334,7 @@ function ActiveSessionUI() {
   const sendMessage = useCallback(async () => {
     const text = chatInput.trim();
     if (!text) return;
-    
+
     // We add it to our local messages array for instant UI feedback
     const userMsg: ChatMsg = { id: Date.now(), role: "user", text, time: NOW() };
     setMessages((m) => [...m, userMsg]);
@@ -384,7 +384,7 @@ function ActiveSessionUI() {
       </header>
 
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative px-6 pb-24 gap-6">
-        
+
         {/* Center — Massive AI Whiteboard */}
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-white shadow-[0_8px_40px_rgb(0,0,0,0.04)] rounded-[32px] border border-slate-200/60 relative isolate">
           <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-white/80 backdrop-blur-md z-10 absolute top-0 inset-x-0">
@@ -399,7 +399,7 @@ function ActiveSessionUI() {
               {vizLoading && <Loader2 className="w-4 h-4 animate-spin text-slate-700 ml-3" />}
             </div>
           </div>
-          
+
           {/* Whiteboard Canvas */}
           <div className="flex-1 overflow-auto flex items-center justify-center p-8 bg-slate-50 pt-28 pb-8">
             <div className="w-full h-full border-2 border-dashed border-slate-200 rounded-[24px] flex items-center justify-center p-8 bg-white relative shadow-sm">
@@ -448,7 +448,7 @@ function ActiveSessionUI() {
                 {tabs.map((t) => (
                   <button key={t.key} onClick={() => setActiveTab(t.key)}
                     className="flex-1 flex items-center justify-center gap-2 py-3 text-xs font-bold transition-all rounded-2xl relative"
-                    style={{ 
+                    style={{
                       color: activeTab === t.key ? "var(--color-primary)" : "var(--color-text-secondary)",
                       backgroundColor: activeTab === t.key ? "var(--color-bg-muted)" : "transparent"
                     }}>
@@ -511,11 +511,11 @@ function ActiveSessionUI() {
 
       {/* Floating Bottom Dock (MacOS Style) */}
       <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-2 p-2 bg-white/70 backdrop-blur-3xl border border-white/40 rounded-[28px] shadow-[0_20px_50px_rgba(0,0,0,0.1)] z-50 ring-1 ring-black/5">
-        
+
         {/* Voice Group */}
         <div className="flex items-center gap-2 bg-black/5 rounded-[22px] p-1">
           <TrackToggle source={Track.Source.Microphone} className="w-11 h-11 rounded-[18px] border-0 flex items-center justify-center transition-all cursor-pointer bg-white text-slate-700 hover:bg-slate-50 data-[state=off]:bg-red-500 data-[state=off]:text-white shadow-sm" />
-          
+
           <div className="h-11 min-w-[140px] px-4 rounded-[18px] bg-white/50 flex items-center justify-center gap-2 transition-all">
             <AgentStatusIndicator isMicMuted={isMicMuted} />
           </div>
@@ -536,7 +536,7 @@ function ActiveSessionUI() {
 
         {/* Video Toggle */}
         <TrackToggle source={Track.Source.Camera} className="w-11 h-11 rounded-[22px] border-0 flex items-center justify-center transition-all cursor-pointer bg-white/50 text-slate-700 hover:bg-white data-[state=off]:bg-red-500 data-[state=off]:text-white shadow-sm" />
-        
+
         <div className="w-[1px] h-6 bg-black/10 mx-1"></div>
 
         {/* End Session */}
@@ -550,7 +550,7 @@ function ActiveSessionUI() {
 
 function AgentStatusIndicator({ isMicMuted }: { isMicMuted: boolean }) {
   const { state } = useVoiceAssistant();
-  
+
   const isListening = state === 'listening' && !isMicMuted;
   const isThinking = state === 'thinking';
   const isSpeaking = state === 'speaking';
@@ -571,12 +571,10 @@ function AgentStatusIndicator({ isMicMuted }: { isMicMuted: boolean }) {
       <div className="relative flex items-center justify-center w-8 h-8">
         {isActive && (
           <>
-            <span className={`absolute inset-0 rounded-full opacity-20 animate-ping ${
-              isSpeaking ? 'bg-blue-400' : isThinking ? 'bg-amber-400' : 'bg-emerald-400'
-            }`} style={{ animationDuration: isSpeaking ? '1s' : '2s' }} />
-            <span className={`absolute inset-[3px] rounded-full opacity-30 animate-ping ${
-              isSpeaking ? 'bg-blue-400' : isThinking ? 'bg-amber-400' : 'bg-emerald-400'
-            }`} style={{ animationDuration: isSpeaking ? '1.3s' : '2.5s' }} />
+            <span className={`absolute inset-0 rounded-full opacity-20 animate-ping ${isSpeaking ? 'bg-blue-400' : isThinking ? 'bg-amber-400' : 'bg-emerald-400'
+              }`} style={{ animationDuration: isSpeaking ? '1s' : '2s' }} />
+            <span className={`absolute inset-[3px] rounded-full opacity-30 animate-ping ${isSpeaking ? 'bg-blue-400' : isThinking ? 'bg-amber-400' : 'bg-emerald-400'
+              }`} style={{ animationDuration: isSpeaking ? '1.3s' : '2.5s' }} />
           </>
         )}
         <span className={`relative z-10 w-3 h-3 rounded-full transition-all duration-300 shadow-sm ${dotColor} ${isActive ? 'scale-100' : 'scale-75'}`} />

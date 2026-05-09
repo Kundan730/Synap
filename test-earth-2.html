@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>3D Earth Simulation</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { margin: 0; padding: 0; width: 100vw; height: 100vh; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #000; color: #eee; }
+        #info { position: absolute; top: 10px; left: 10px; z-index: 100; background: rgba(0, 0, 0, 0.7); padding: 10px 15px; border-radius: 8px; font-size: 14px; max-width: 300px; }
+        #info h1 { margin: 0 0 5px 0; font-size: 1.2em; color: #88c0d0; }
+        #info p { margin: 0; line-height: 1.5; }
+        #info a { color: #88c0d0; text-decoration: none; }
+        #info a:hover { text-decoration: underline; }
+        canvas { display: block; }
+        .slider-container { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); z-index: 100; background: rgba(0, 0, 0, 0.7); padding: 8px 15px; border-radius: 8px; display: flex; align-items: center; gap: 10px; }
+        .slider-container label { font-size: 0.9em; white-space: nowrap; }
+        .slider-container input[type="range"] { width: 150px; -webkit-appearance: none; appearance: none; height: 4px; background: #555; outline: none; border-radius: 2px; }
+        .slider-container input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #88c0d0; cursor: pointer; border: 2px solid #fff; }
+        .slider-container input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: #88c0d0; cursor: pointer; border: 2px solid #fff; }
+    </style>
+    <!-- Three.js (r128) and OrbitControls -->
+    
+    
+</head>
+<body>
+    <div id="info">
+        <h1>3D Earth Simulation</h1>
+        <p>Explore a rotating 3D model of Earth. Drag to orbit, scroll to zoom.</p>
+        <p>Interactive features: <span id="rotationSpeedVal">1.0x</span> rotation speed, atmospheric glow.</p>
+        <p>Data sources: <a href="https://www.solarsystemscope.com/textures/" target="_blank">SolarSystemScope</a></p>
+    </div>
+    <div class="slider-container">
+        <label for="rotationSpeed">Rotation Speed:</label>
+        <input type="range" id="rotationSpeed" min="0" max="2" step="0.1" value="1">
+    </div>
+
+    
+
+<script>
+(function(){
+  window.onerror = function(msg, url, line) {
+    if (!document.getElementById('ai-error-log')) {
+      var d = document.createElement('div');
+      d.id = 'ai-error-log';
+      d.style.cssText = 'position:fixed;top:0;left:0;width:100%;background:rgba(255,0,0,0.9);color:#fff;padding:20px;font-family:monospace;z-index:99999;box-sizing:border-box;';
+      document.body.appendChild(d);
+    }
+    document.getElementById('ai-error-log').innerHTML += '<p>Error: '+msg+' (Line: '+line+')</p>';
+    return false;
+  };
+
+  var cdns = ["https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js","https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"];
+  var code = ["CiAgICAgICAgbGV0IHNjZW5lLCBjYW1lcmEsIHJlbmRlcmVyLCBlYXJ0aCwgY29udHJvbHMsIGF0bW9zcGhlcmU7CiAgICAgICAgbGV0IHJvdGF0aW9uU3BlZWQgPSAwLjAwNTsgLy8gQmFzZSByb3RhdGlvbiBzcGVlZAogICAgICAgIGNvbnN0IHJvdGF0aW9uU3BlZWRJbnB1dCA9IGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdyb3RhdGlvblNwZWVkJyk7CiAgICAgICAgY29uc3Qgcm90YXRpb25TcGVlZFZhbERpc3BsYXkgPSBkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgncm90YXRpb25TcGVlZFZhbCcpOwoKICAgICAgICBmdW5jdGlvbiBpbml0KCkgewogICAgICAgICAgICAvLyBTY2VuZQogICAgICAgICAgICBzY2VuZSA9IG5ldyBUSFJFRS5TY2VuZSgpOwogICAgICAgICAgICBzY2VuZS5iYWNrZ3JvdW5kID0gbmV3IFRIUkVFLkNvbG9yKDB4MDAwMDAwKTsKCiAgICAgICAgICAgIC8vIENhbWVyYQogICAgICAgICAgICBjYW1lcmEgPSBuZXcgVEhSRUUuUGVyc3BlY3RpdmVDYW1lcmEoNzUsIHdpbmRvdy5pbm5lcldpZHRoIC8gd2luZG93LmlubmVySGVpZ2h0LCAwLjEsIDEwMDApOwogICAgICAgICAgICBjYW1lcmEucG9zaXRpb24ueiA9IDU7CgogICAgICAgICAgICAvLyBSZW5kZXJlcgogICAgICAgICAgICByZW5kZXJlciA9IG5ldyBUSFJFRS5XZWJHTFJlbmRlcmVyKHsgYW50aWFsaWFzOiB0cnVlIH0pOwogICAgICAgICAgICByZW5kZXJlci5zZXRTaXplKHdpbmRvdy5pbm5lcldpZHRoLCB3aW5kb3cuaW5uZXJIZWlnaHQpOwogICAgICAgICAgICBkb2N1bWVudC5ib2R5LmFwcGVuZENoaWxkKHJlbmRlcmVyLmRvbUVsZW1lbnQpOwoKICAgICAgICAgICAgLy8gT3JiaXRDb250cm9scwogICAgICAgICAgICBjb250cm9scyA9IG5ldyBUSFJFRS5PcmJpdENvbnRyb2xzKGNhbWVyYSwgcmVuZGVyZXIuZG9tRWxlbWVudCk7CiAgICAgICAgICAgIGNvbnRyb2xzLmVuYWJsZURhbXBpbmcgPSB0cnVlOyAvLyBhbiBhbmltYXRpb24gbG9vcCBpcyByZXF1aXJlZCB3aGVuIGRhbXBpbmcgaXMgZW5hYmxlZAogICAgICAgICAgICBjb250cm9scy5kYW1waW5nRmFjdG9yID0gMC4wNTsKICAgICAgICAgICAgY29udHJvbHMuc2NyZWVuU3BhY2VQYW5uaW5nID0gZmFsc2U7CiAgICAgICAgICAgIGNvbnRyb2xzLm1pbkRpc3RhbmNlID0gMi41OwogICAgICAgICAgICBjb250cm9scy5tYXhEaXN0YW5jZSA9IDEwOwogICAgICAgICAgICBjb250cm9scy5tYXhQb2xhckFuZ2xlID0gTWF0aC5QSSAvIDI7CgogICAgICAgICAgICAvLyBMaWdodGluZwogICAgICAgICAgICBjb25zdCBhbWJpZW50TGlnaHQgPSBuZXcgVEhSRUUuQW1iaWVudExpZ2h0KDB4YWFhYWFhKTsgLy8gU29mdCB3aGl0ZSBsaWdodAogICAgICAgICAgICBzY2VuZS5hZGQoYW1iaWVudExpZ2h0KTsKICAgICAgICAgICAgY29uc3QgZGlyZWN0aW9uYWxMaWdodCA9IG5ldyBUSFJFRS5EaXJlY3Rpb25hbExpZ2h0KDB4ZmZmZmZmLCAwLjgpOwogICAgICAgICAgICBkaXJlY3Rpb25hbExpZ2h0LnBvc2l0aW9uLnNldCg1LCAzLCA1KS5ub3JtYWxpemUoKTsKICAgICAgICAgICAgc2NlbmUuYWRkKGRpcmVjdGlvbmFsTGlnaHQpOwoKICAgICAgICAgICAgLy8gRWFydGggVGV4dHVyZXMKICAgICAgICAgICAgY29uc3QgdGV4dHVyZUxvYWRlciA9IG5ldyBUSFJFRS5UZXh0dXJlTG9hZGVyKCkuc2V0Q3Jvc3NPcmlnaW4oJ0Fub255bW91cycpOwogICAgICAgICAgICBjb25zdCBlYXJ0aFRleHR1cmUgPSB0ZXh0dXJlTG9hZGVyLmxvYWQoJ2h0dHBzOi8vY2RuLmpzZGVsaXZyLm5ldC9naC9tcmRvb2IvdGhyZWUuanNAbWFzdGVyL2V4YW1wbGVzL3RleHR1cmVzL3BsYW5ldHMvZWFydGhfYXRtb3NfMjA0OC5qcGcnKTsKICAgICAgICAgICAgY29uc3QgZWFydGhCdW1wTWFwID0gdGV4dHVyZUxvYWRlci5sb2FkKCdodHRwczovL2Nkbi5qc2RlbGl2ci5uZXQvZ2gvbXJkb29iL3RocmVlLmpzQG1hc3Rlci9leGFtcGxlcy90ZXh0dXJlcy9wbGFuZXRzL2VhcnRoX2J1bXBfMjA0OC5qcGcnKTsKICAgICAgICAgICAgY29uc3QgZWFydGhTcGVjdWxhck1hcCA9IHRleHR1cmVMb2FkZXIubG9hZCgnaHR0cHM6Ly9jZG4uanNkZWxpdnIubmV0L2doL21yZG9vYi90aHJlZS5qc0BtYXN0ZXIvZXhhbXBsZXMvdGV4dHVyZXMvcGxhbmV0cy9lYXJ0aF9zcGVjdWxhcl8yMDQ4LmpwZycpOwogICAgICAgICAgICBjb25zdCBlYXJ0aENsb3VkcyA9IHRleHR1cmVMb2FkZXIubG9hZCgnaHR0cHM6Ly9jZG4uanNkZWxpdnIubmV0L2doL21yZG9vYi90aHJlZS5qc0BtYXN0ZXIvZXhhbXBsZXMvdGV4dHVyZXMvcGxhbmV0cy9lYXJ0aF9jbG91ZHNfMTAyNC5wbmcnKTsKCiAgICAgICAgICAgIC8vIEVhcnRoIFNwaGVyZQogICAgICAgICAgICBjb25zdCBlYXJ0aEdlb21ldHJ5ID0gbmV3IFRIUkVFLlNwaGVyZUdlb21ldHJ5KDEsIDY0LCA2NCk7CiAgICAgICAgICAgIGNvbnN0IGVhcnRoTWF0ZXJpYWwgPSBuZXcgVEhSRUUuTWVzaFBob25nTWF0ZXJpYWwoewogICAgICAgICAgICAgICAgbWFwOiBlYXJ0aFRleHR1cmUsCiAgICAgICAgICAgICAgICBidW1wTWFwOiBlYXJ0aEJ1bXBNYXAsCiAgICAgICAgICAgICAgICBidW1wU2NhbGU6IDAuMDUsCiAgICAgICAgICAgICAgICBzcGVjdWxhck1hcDogZWFydGhTcGVjdWxhck1hcCwKICAgICAgICAgICAgICAgIHNwZWN1bGFyOiBuZXcgVEhSRUUuQ29sb3IoJ2dyZXknKSwKICAgICAgICAgICAgfSk7CiAgICAgICAgICAgIGVhcnRoID0gbmV3IFRIUkVFLk1lc2goZWFydGhHZW9tZXRyeSwgZWFydGhNYXRlcmlhbCk7CiAgICAgICAgICAgIHNjZW5lLmFkZChlYXJ0aCk7CgogICAgICAgICAgICAvLyBDbG91ZHMKICAgICAgICAgICAgY29uc3QgY2xvdWRHZW9tZXRyeSA9IG5ldyBUSFJFRS5TcGhlcmVHZW9tZXRyeSgxLjAwNSwgNjQsIDY0KTsgLy8gU2xpZ2h0bHkgbGFyZ2VyCiAgICAgICAgICAgIGNvbnN0IGNsb3VkTWF0ZXJpYWwgPSBuZXcgVEhSRUUuTWVzaFBob25nTWF0ZXJpYWwoewogICAgICAgICAgICAgICAgbWFwOiBlYXJ0aENsb3VkcywKICAgICAgICAgICAgICAgIHRyYW5zcGFyZW50OiB0cnVlLAogICAgICAgICAgICAgICAgb3BhY2l0eTogMC44LAogICAgICAgICAgICAgICAgYmxlbmRpbmc6IFRIUkVFLkFkZGl0aXZlQmxlbmRpbmcsIC8vIE1ha2VzIGNsb3VkcyBibGVuZCBuaWNlbHkKICAgICAgICAgICAgfSk7CiAgICAgICAgICAgIGNvbnN0IGNsb3VkcyA9IG5ldyBUSFJFRS5NZXNoKGNsb3VkR2VvbWV0cnksIGNsb3VkTWF0ZXJpYWwpOwogICAgICAgICAgICBlYXJ0aC5hZGQoY2xvdWRzKTsgLy8gQWRkIGNsb3VkcyBhcyBhIGNoaWxkIG9mIGVhcnRoIHRvIHJvdGF0ZSB3aXRoIGl0CgogICAgICAgICAgICAvLyBTdGFycyBCYWNrZ3JvdW5kCiAgICAgICAgICAgIGNvbnN0IHN0YXJzR2VvbWV0cnkgPSBuZXcgVEhSRUUuU3BoZXJlR2VvbWV0cnkoOTAsIDY0LCA2NCk7CiAgICAgICAgICAgIGNvbnN0IHN0YXJzTWF0ZXJpYWwgPSBuZXcgVEhSRUUuTWVzaEJhc2ljTWF0ZXJpYWwoewogICAgICAgICAgICAgICAgbWFwOiB0ZXh0dXJlTG9hZGVyLmxvYWQoJ2h0dHBzOi8vY2RuLmpzZGVsaXZyLm5ldC9naC9tcmRvb2IvdGhyZWUuanNAbWFzdGVyL2V4YW1wbGVzL3RleHR1cmVzL2dhbGF4eV9zdGFyZmllbGQucG5nJyksCiAgICAgICAgICAgICAgICBzaWRlOiBUSFJFRS5CYWNrU2lkZSwKICAgICAgICAgICAgfSk7CiAgICAgICAgICAgIGNvbnN0IHN0YXJmaWVsZCA9IG5ldyBUSFJFRS5NZXNoKHN0YXJzR2VvbWV0cnksIHN0YXJzTWF0ZXJpYWwpOwogICAgICAgICAgICBzY2VuZS5hZGQoc3RhcmZpZWxkKTsKCiAgICAgICAgICAgIC8vIEF0bW9zcGhlcmUgKHNpbXBsZSBnbG93IGVmZmVjdCB1c2luZyBhIHNoYWRlcikKICAgICAgICAgICAgY29uc3QgYXRtb3NwaGVyZUdlb21ldHJ5ID0gbmV3IFRIUkVFLlNwaGVyZUdlb21ldHJ5KDEuMDIsIDY0LCA2NCk7CiAgICAgICAgICAgIGNvbnN0IGF0bW9zcGhlcmVNYXRlcmlhbCA9IG5ldyBUSFJFRS5TaGFkZXJNYXRlcmlhbCh7CiAgICAgICAgICAgICAgICB1bmlmb3JtczogewogICAgICAgICAgICAgICAgICAgICdjJzogeyB0eXBlOiAnZicsIHZhbHVlOiAwLjcgfSwKICAgICAgICAgICAgICAgICAgICAncCc6IHsgdHlwZTogJ2YnLCB2YWx1ZTogNC4wIH0sCiAgICAgICAgICAgICAgICAgICAgZ2xvd0NvbG9yOiB7IHR5cGU6ICdjJywgdmFsdWU6IG5ldyBUSFJFRS5Db2xvcigweDAwQkZGRikgfSwKICAgICAgICAgICAgICAgICAgICB2aWV3VmVjdG9yOiB7IHR5cGU6ICd2MycsIHZhbHVlOiBjYW1lcmEucG9zaXRpb24gfQogICAgICAgICAgICAgICAgfSwKICAgICAgICAgICAgICAgIHZlcnRleFNoYWRlcjogYAogICAgICAgICAgICAgICAgICAgIHVuaWZvcm0gdmVjMyB2aWV3VmVjdG9yOwogICAgICAgICAgICAgICAgICAgIHVuaWZvcm0gZmxvYXQgYzsKICAgICAgICAgICAgICAgICAgICB1bmlmb3JtIGZsb2F0IHA7CiAgICAgICAgICAgICAgICAgICAgdmFyeWluZyBmbG9hdCBpbnRlbnNpdHk7CiAgICAgICAgICAgICAgICAgICAgdm9pZCBtYWluKCkgewogICAgICAgICAgICAgICAgICAgICAgICB2ZWMzIHZOb3JtYWwgPSBub3JtYWxpemUoIG5vcm1hbE1hdHJpeCAqIG5vcm1hbCApOwogICAgICAgICAgICAgICAgICAgICAgICB2ZWMzIHZOb3JtZWwgPSBub3JtYWxpemUoIG5vcm1hbE1hdHJpeCAqIHZpZXdWZWN0b3IgKTsKICAgICAgICAgICAgICAgICAgICAgICAgaW50ZW5zaXR5ID0gcG93KCBjIC0gZG90KHZOb3JtYWwsIHZOb3JtZWwpLCBwICk7CiAgICAgICAgICAgICAgICAgICAgICAgIGdsX1Bvc2l0aW9uID0gcHJvamVjdGlvbk1hdHJpeCAqIG1vZGVsVmlld01hdHJpeCAqIHZlYzQoIHBvc2l0aW9uLCAxLjAgKTsKICAgICAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgICAgICBgLAogICAgICAgICAgICAgICAgZnJhZ21lbnRTaGFkZXI6IGAKICAgICAgICAgICAgICAgICAgICB1bmlmb3JtIHZlYzMgZ2xvd0NvbG9yOwogICAgICAgICAgICAgICAgICAgIHZhcnlpbmcgZmxvYXQgaW50ZW5zaXR5OwogICAgICAgICAgICAgICAgICAgIHZvaWQgbWFpbigpIHsKICAgICAgICAgICAgICAgICAgICAgICAgZ2xfRnJhZ0NvbG9yID0gdmVjNCggZ2xvd0NvbG9yICogaW50ZW5zaXR5LCAxLjAgKTsKICAgICAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgICAgICBgLAogICAgICAgICAgICAgICAgc2lkZTogVEhSRUUuQmFja1NpZGUsCiAgICAgICAgICAgICAgICBibGVuZGluZzogVEhSRUUuQWRkaXRpdmVCbGVuZGluZywKICAgICAgICAgICAgICAgIHRyYW5zcGFyZW50OiB0cnVlCiAgICAgICAgICAgIH0pOwogICAgICAgICAgICBhdG1vc3BoZXJlID0gbmV3IFRIUkVFLk1lc2goYXRtb3NwaGVyZUdlb21ldHJ5LCBhdG1vc3BoZXJlTWF0ZXJpYWwpOwogICAgICAgICAgICBzY2VuZS5hZGQoYXRtb3NwaGVyZSk7CgogICAgICAgICAgICAvLyBFdmVudCBMaXN0ZW5lcnMKICAgICAgICAgICAgd2luZG93LmFkZEV2ZW50TGlzdGVuZXIoJ3Jlc2l6ZScsIG9uV2luZG93UmVzaXplLCBmYWxzZSk7CiAgICAgICAgICAgIHJvdGF0aW9uU3BlZWRJbnB1dC5hZGRFdmVudExpc3RlbmVyKCdpbnB1dCcsIChldmVudCkgPT4gewogICAgICAgICAgICAgICAgcm90YXRpb25TcGVlZCA9IHBhcnNlRmxvYXQoZXZlbnQudGFyZ2V0LnZhbHVlKSAqIDAuMDA1OyAvLyBTY2FsZSBzbGlkZXIgdmFsdWUKICAgICAgICAgICAgICAgIHJvdGF0aW9uU3BlZWRWYWxEaXNwbGF5LnRleHRDb250ZW50ID0gYCR7ZXZlbnQudGFyZ2V0LnZhbHVlfXhgOwogICAgICAgICAgICB9KTsKICAgICAgICB9CgogICAgICAgIGZ1bmN0aW9uIG9uV2luZG93UmVzaXplKCkgewogICAgICAgICAgICBjYW1lcmEuYXNwZWN0ID0gd2luZG93LmlubmVyV2lkdGggLyB3aW5kb3cuaW5uZXJIZWlnaHQ7CiAgICAgICAgICAgIGNhbWVyYS51cGRhdGVQcm9qZWN0aW9uTWF0cml4KCk7CiAgICAgICAgICAgIHJlbmRlcmVyLnNldFNpemUod2luZG93LmlubmVyV2lkdGgsIHdpbmRvdy5pbm5lckhlaWdodCk7CiAgICAgICAgfQoKICAgICAgICBmdW5jdGlvbiBhbmltYXRlKCkgewogICAgICAgICAgICByZXF1ZXN0QW5pbWF0aW9uRnJhbWUoYW5pbWF0ZSk7CgogICAgICAgICAgICBlYXJ0aC5yb3RhdGlvbi55ICs9IHJvdGF0aW9uU3BlZWQ7CiAgICAgICAgICAgIGF0bW9zcGhlcmUucm90YXRpb24ueSArPSByb3RhdGlvblNwZWVkOyAvLyBBdG1vc3BoZXJlIHJvdGF0ZXMgd2l0aCBlYXJ0aAoKICAgICAgICAgICAgY29udHJvbHMudXBkYXRlKCk7IC8vIG9ubHkgcmVxdWlyZWQgaWYgY29udHJvbHMuZW5hYmxlRGFtcGluZyBpcyBzZXQgdG8gdHJ1ZQogICAgICAgICAgICByZW5kZXJlci5yZW5kZXIoc2NlbmUsIGNhbWVyYSk7CiAgICAgICAgfQoKICAgICAgICBpbml0KCk7CiAgICAgICAgYW5pbWF0ZSgpOwogICAg"];
+
+  function loadCDN(url) {
+    return new Promise(function(resolve) {
+      var s = document.createElement('script');
+      s.src = url;
+      s.onload = resolve;
+      s.onerror = function(){ console.warn('CDN failed: '+url); resolve(); };
+      document.head.appendChild(s);
+    });
+  }
+
+  async function boot() {
+    for (var i = 0; i < cdns.length; i++) await loadCDN(cdns[i]);
+    for (var j = 0; j < code.length; j++) {
+      var s = document.createElement('script');
+      s.textContent = atob(code[j]);
+      document.body.appendChild(s);
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+})();
+</script>
+</body>
+</html>

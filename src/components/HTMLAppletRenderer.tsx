@@ -9,14 +9,12 @@ export default function HTMLAppletRenderer({ htmlCode }: { htmlCode: string }) {
   useEffect(() => {
     if (!htmlCode) return;
 
-    // Strip markdown fences if the backend missed them
     let cleanHtml = htmlCode;
     const htmlMatch = cleanHtml.match(/```html([\s\S]*?)```/);
     if (htmlMatch) {
       cleanHtml = htmlMatch[1].trim();
     }
 
-    // Create a Blob URL — proper document context for CDN script loading
     const blob = new Blob([cleanHtml], { type: "text/html" });
     const url = URL.createObjectURL(blob);
     setBlobUrl(url);

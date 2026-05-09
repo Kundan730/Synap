@@ -3,7 +3,6 @@ import React from "react";
 import { Sandpack } from "@codesandbox/sandpack-react";
 
 export default function CodeSandbox({ initialCode, language = "react" }: { initialCode?: string, language?: string }) {
-  // Map our simplified languages to Sandpack templates
   const templateMap: Record<string, any> = {
     "react": "react",
     "javascript": "vanilla",
@@ -15,8 +14,6 @@ export default function CodeSandbox({ initialCode, language = "react" }: { initi
   const template = templateMap[language] || "react";
   const filename = template === "react" ? "/App.js" : "/index.js";
 
-  // Memoize the initial files to prevent Sandpack from resetting the editor 
-  // on every parent component re-render (e.g. from the session timer).
   const files = React.useMemo(() => {
     return initialCode ? { [filename]: initialCode } : undefined;
   }, [initialCode, filename]);

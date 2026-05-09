@@ -21,7 +21,13 @@ export async function POST(req: NextRequest) {
           - For Maps: Use Leaflet.js (include CSS/JS from unpkg or cdnjs).
           - For Graphs: Use Chart.js.
           - For Physics/2D simulations: Use p5.js.
-          - For 3D: Use Three.js.
+          - For 3D: Use Three.js. CRITICAL: You MUST use r128 to ensure OrbitControls works without ES modules. 
+            Include these exact library scripts in your <head>:
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+            <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+            Then, write your simulation logic in a standard <script> tag. DO NOT use <script type="module"> or import statements.
+            CRITICAL FOR TEXTURES: You MUST call .setCrossOrigin('Anonymous') on your TextureLoader or the images will fail to load and the objects will be black! Example: new THREE.TextureLoader().setCrossOrigin('Anonymous').load(...)
+            CRITICAL FOR TEXTURES 2: NEVER load textures from threejs.org or jsdelivr (they block CORS or have limits). Always use raw github urls for textures: e.g. https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/...
       - Make it highly interactive and visually premium (dark mode, vibrant colors, tooltips, hover effects).
       - Ensure the applet fills the full window: body { margin: 0; padding: 0; width: 100vw; height: 100vh; overflow: hidden; }
       - Keep the HTML file UNDER 200 LINES. Use public APIs (e.g. fetch GeoJSON for maps) instead of hardcoding massive datasets.
@@ -44,11 +50,6 @@ export async function POST(req: NextRequest) {
         rawHtml = rawHtml.replace(/```html/gi, "").replace(/```/g, "").trim();
       }
 
-      // === BULLETPROOF SCRIPT REWRITER ===
-      // Browsers don't reliably block on external <script src> in blob/srcDoc iframes.
-      // Fix: Extract all scripts, then reload them sequentially via a dynamic boot loader.
-      
-      // Step 0: Strip integrity/crossorigin attributes (SRI fails in blob URL contexts)
       rawHtml = rawHtml.replace(/\s+integrity="[^"]*"/gi, "");
       rawHtml = rawHtml.replace(/\s+crossorigin="[^"]*"/gi, "");
       rawHtml = rawHtml.replace(/\s+crossorigin(?=[>\s])/gi, "");
@@ -56,23 +57,20 @@ export async function POST(req: NextRequest) {
       const externalUrls: string[] = [];
       const inlineScripts: string[] = [];
 
-      // Extract and remove all <script> tags
       rawHtml = rawHtml.replace(/<script([^>]*)>([\s\S]*?)<\/script>/gi, (_full, attrs: string, content: string) => {
         const srcMatch = attrs.match(/src\s*=\s*["']([^"']+)["']/i);
         if (srcMatch) {
           externalUrls.push(srcMatch[1]);
-          return ""; // Remove external script tag
+          return "";
         } else if (content.trim()) {
           inlineScripts.push(content);
-          return ""; // Remove inline script tag
+          return "";
         }
         return "";
       });
 
-      // Encode inline scripts as base64 to completely avoid escaping issues
       const encodedScripts = inlineScripts.map(s => Buffer.from(s).toString("base64"));
 
-      // Build a single boot loader that guarantees: CDNs load first → then inline code runs
       const bootScript = `
 <script>
 (function(){
