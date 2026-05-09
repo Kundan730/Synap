@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
       const externalUrls: string[] = [];
       const inlineScripts: string[] = [];
 
-      rawHtml = rawHtml.replace(/<script([^>]*)>([\s\S]*?)<\/script>/gi, (_full, attrs: string, content: string) => {
+      rawHtml = rawHtml.replace(/<script([^>]*)>([\s\S]*?)<\/script>/gi, (_full: string, attrs: string, content: string) => {
         const srcMatch = attrs.match(/src\s*=\s*["']([^"']+)["']/i);
         if (srcMatch) {
           externalUrls.push(srcMatch[1]);
