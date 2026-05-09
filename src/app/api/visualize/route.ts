@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { geminiGenerate, VISUALIZATION_SYSTEM_PROMPT, GEMINI_API_KEY } from "@/lib/gemini";
 
+export const maxDuration = 60; // Allow up to 60 seconds for Gemini to generate complex 3D applets
+
 export async function POST(req: NextRequest) {
   try {
     const { topic, context, type } = await req.json();

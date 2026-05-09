@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { geminiStream, TUTOR_SYSTEM_PROMPT, GEMINI_API_KEY } from "@/lib/gemini";
 
+export const maxDuration = 60; // Extend Vercel timeout for long streaming responses
+
 export async function POST(req: NextRequest) {
   try {
     const { messages, topic } = await req.json();
