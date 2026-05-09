@@ -21,22 +21,59 @@ export async function GET(req: NextRequest) {
 
   const httpHost = wsUrl.replace('wss://', 'https://').replace('ws://', 'http://');
 
+  const rejoin = req.nextUrl.searchParams.get("rejoin") === "true";
+
   try {
-    // 1. Delete the old room to clear stale state, then recreate
     const roomService = new RoomServiceClient(httpHost, apiKey, apiSecret);
-    try {
-      await roomService.deleteRoom(room);
-      console.log(`🗑️ Cleared old room "${room}"`);
-    } catch {}
 
-    await roomService.createRoom({ 
-      name: room, 
-      emptyTimeout: 300,
-      maxParticipants: 5,
-    });
-    console.log(`✅ Room "${room}" created fresh`);
+    if (rejoin) {
+      // On page reload: try to join the existing room WITHOUT destroying it
+      // This preserves the running agent and its state
+      let roomExists = false;
+      try {
+        const rooms = await roomService.listRooms([room]);
+        roomExists = rooms.length > 0;
+      } catch {}
 
-    // 2. Generate user token
+      if (!roomExists) {
+        // Room was already cleaned up — create fresh
+        await roomService.createRoom({ name: room, emptyTimeout: 300, maxParticipants: 5 });
+        console.log(`✅ Room "${room}" recreated (was gone)`);
+
+        try {
+          const dispatchClient = new AgentDispatchClient(httpHost, apiKey, apiSecret);
+          const dispatch = await dispatchClient.createDispatch(room, 'synap-tutor');
+          console.log(`✅ Agent dispatched to room "${room}", dispatch ID: ${dispatch.id}`);
+        } catch (e: any) {
+          console.error(`⚠️ Agent dispatch failed:`, e.message);
+        }
+      } else {
+        console.log(`♻️ Rejoining existing room "${room}" (agent preserved)`);
+      }
+    } else {
+      // Fresh join: delete old room, create new, dispatch agent
+      try {
+        await roomService.deleteRoom(room);
+        console.log(`🗑️ Cleared old room "${room}"`);
+      } catch {}
+
+      await roomService.createRoom({ 
+        name: room, 
+        emptyTimeout: 300,
+        maxParticipants: 5,
+      });
+      console.log(`✅ Room "${room}" created fresh`);
+
+      try {
+        const dispatchClient = new AgentDispatchClient(httpHost, apiKey, apiSecret);
+        const dispatch = await dispatchClient.createDispatch(room, 'synap-tutor');
+        console.log(`✅ Agent dispatched to room "${room}", dispatch ID: ${dispatch.id}`);
+      } catch (e: any) {
+        console.error(`⚠️ Agent dispatch failed:`, e.message);
+      }
+    }
+
+    // Generate user token
     const at = new AccessToken(apiKey, apiSecret, {
       identity: username,
       name: username,
@@ -50,15 +87,6 @@ export async function GET(req: NextRequest) {
       canPublishData: true,
     });
     const token = await at.toJwt();
-
-    // 3. Always create a fresh dispatch (room was just recreated, no stale dispatches)
-    try {
-      const dispatchClient = new AgentDispatchClient(httpHost, apiKey, apiSecret);
-      const dispatch = await dispatchClient.createDispatch(room, 'synap-tutor');
-      console.log(`✅ Agent dispatched to room "${room}", dispatch ID: ${dispatch.id}`);
-    } catch (e: any) {
-      console.error(`⚠️ Agent dispatch failed:`, e.message);
-    }
 
     return NextResponse.json({ token });
   } catch (error: any) {

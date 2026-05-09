@@ -84,6 +84,7 @@ export default function SessionPage() {
 
   // Pre-join screen
   if (token === "") {
+    
     return (
       <div className="h-screen flex items-center justify-center bg-slate-50 relative">
         <Link href="/" className="absolute top-8 left-8 flex items-center gap-2 text-slate-500 hover:text-zinc-900 transition-colors font-medium">
