@@ -99,6 +99,48 @@ export default defineAgent({
           return 'Video is playing.';
         }
       }),
+      open_drawing_board: llm.tool({
+        description: 'Open a freehand drawing board on the whiteboard. Use this when the user needs to sketch a diagram, solve a math problem by hand, or visually explain something.',
+        parameters: z.object({}),
+        execute: async (_, __) => {
+          console.log('🎨 LLM called open_drawing_board');
+          const payload = new TextEncoder().encode(JSON.stringify({ type: 'TOOL_CALL', tool: 'open_drawing_board' }));
+          await ctx.room.localParticipant?.publishData(payload, { reliable: true });
+          return 'Drawing board is now open. The user can start sketching.';
+        }
+      }),
+      open_code_editor: llm.tool({
+        description: 'Open an interactive code sandbox on the whiteboard. Use this for programming tutorials or coding challenges.',
+        parameters: z.object({
+          language: z.enum(['react', 'javascript', 'html', 'typescript', 'vue']).describe('The programming language environment to use.'),
+          initialCode: z.string().optional().describe('Optional initial code to populate the editor with.')
+        }),
+        execute: async ({ language, initialCode }, _) => {
+          console.log('💻 LLM called open_code_editor:', language);
+          const payload = new TextEncoder().encode(JSON.stringify({ type: 'TOOL_CALL', tool: 'open_code_editor', data: { language, initialCode } }));
+          await ctx.room.localParticipant?.publishData(payload, { reliable: true });
+          return 'Code editor is open. Tell the user they can start coding.';
+        }
+      }),
+      show_quiz: llm.tool({
+        description: 'Display an interactive multiple-choice quiz on the whiteboard to test the user\'s knowledge.',
+        parameters: z.object({
+          question: z.string().describe('The quiz question.'),
+          options: z.array(z.string()).describe('An array of 4 possible answer options.'),
+          correctAnswerIndex: z.number().describe('The index (0-3) of the correct answer in the options array.'),
+          explanation: z.string().describe('A helpful explanation of why the correct answer is right. This is shown after they answer.')
+        }),
+        execute: async ({ question, options, correctAnswerIndex, explanation }, _) => {
+          console.log('📝 LLM called show_quiz:', question);
+          const payload = new TextEncoder().encode(JSON.stringify({ 
+            type: 'TOOL_CALL', 
+            tool: 'show_quiz', 
+            data: { question, options, correctAnswerIndex, explanation } 
+          }));
+          await ctx.room.localParticipant?.publishData(payload, { reliable: true });
+          return 'Quiz is displayed on the whiteboard. Wait for the user to answer and tell you how they did.';
+        }
+      }),
     };
 
     const agent = new voice.Agent({

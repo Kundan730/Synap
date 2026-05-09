@@ -38,6 +38,9 @@ const MermaidRenderer = dynamic(() => import("@/components/MermaidRenderer"), { 
 import DesmosRenderer from "@/components/DesmosRenderer";
 import HTMLAppletRenderer from "@/components/HTMLAppletRenderer";
 import VideoRenderer from "@/components/VideoRenderer";
+import DrawingBoard from "@/components/DrawingBoard";
+import CodeSandbox from "@/components/CodeSandbox";
+import QuizRenderer, { QuizData } from "@/components/QuizRenderer";
 
 type Tab = "chat" | "notes" | "quiz" | "summary";
 interface ChatMsg { id: number; role: "user" | "ai"; text: string; time: string; }
@@ -155,10 +158,15 @@ function ActiveSessionUI() {
   const [vizLoading, setVizLoading] = useState(false);
   const [topic, setTopic] = useState("General Learning");
   const [sessionTime, setSessionTime] = useState(0);
-  const [viewMode, setViewMode] = useState<"mermaid" | "desmos" | "html" | "video">("mermaid");
+  const [viewMode, setViewMode] = useState<"mermaid" | "desmos" | "html" | "video" | "drawing" | "code" | "quiz">("mermaid");
   const [desmosEquations, setDesmosEquations] = useState<string[]>([]);
   const [htmlAppletCode, setHtmlAppletCode] = useState<string>("");
   const [videoId, setVideoId] = useState<string>("");
+  
+  // New Interactive States
+  const [sandboxCode, setSandboxCode] = useState<string>("");
+  const [sandboxLang, setSandboxLang] = useState<string>("react");
+  const [quizData, setQuizData] = useState<QuizData | null>(null);
 
 
   const chatEnd = useRef<HTMLDivElement>(null);
@@ -242,6 +250,19 @@ function ActiveSessionUI() {
         } else if (payload.tool === 'play_educational_video') {
           setVideoId(payload.data);
           setViewMode("video");
+        } else if (payload.tool === 'open_drawing_board') {
+          setViewMode("drawing");
+        } else if (payload.tool === 'open_code_editor') {
+          if (payload.data) {
+            setSandboxLang(payload.data.language || "react");
+            setSandboxCode(payload.data.initialCode || "");
+          }
+          setViewMode("code");
+        } else if (payload.tool === 'show_quiz') {
+          if (payload.data) {
+            setQuizData(payload.data);
+          }
+          setViewMode("quiz");
         }
       }
     } catch (e) {
@@ -393,6 +414,9 @@ function ActiveSessionUI() {
               )}
               {viewMode === "video" && <VideoRenderer videoId={videoId} />}
               {viewMode === "mermaid" && <MermaidRenderer code={mermaidCode} className="w-full max-w-5xl" />}
+              {viewMode === "code" && <CodeSandbox initialCode={sandboxCode} language={sandboxLang} />}
+              {viewMode === "quiz" && quizData && <QuizRenderer quiz={quizData} />}
+              {viewMode === "drawing" && <DrawingBoard />}
             </div>
           </div>
 
