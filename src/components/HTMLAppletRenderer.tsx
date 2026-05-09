@@ -17,6 +17,7 @@ export default function HTMLAppletRenderer({ htmlCode }: { htmlCode: string }) {
 
     const blob = new Blob([cleanHtml], { type: "text/html" });
     const url = URL.createObjectURL(blob);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     setBlobUrl(url);
     setIsLoading(false);
 

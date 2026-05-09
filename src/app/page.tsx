@@ -329,7 +329,7 @@ export default function LandingPage() {
                         </div>
                         <div className="rounded-xl p-2.5 text-[10px] leading-relaxed shadow-sm bg-slate-900 text-white">
                           <span className="font-bold text-blue-300 block mb-0.5">Synap AI</span>
-                          I'll calculate the Balance Factor for root node 8...
+                          I&apos;ll calculate the Balance Factor for root node 8...
                         </div>
                       </div>
 
@@ -340,7 +340,7 @@ export default function LandingPage() {
                           <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Live Transcript</div>
                         </div>
                         <p className="text-[10px] text-slate-500 leading-relaxed italic line-clamp-2">
-                          "Now, notice how the height of both subtrees is equal to 2, resulting in a Balance Factor of 0—making this a perfectly balanced AVL tree..."
+                          &quot;Now, notice how the height of both subtrees is equal to 2, resulting in a Balance Factor of 0—making this a perfectly balanced AVL tree...&quot;
                         </p>
                       </div>
 
