@@ -191,10 +191,18 @@ cli.runApp(new WorkerOptions({
 import http from 'http';
 const port = process.env.PORT || 8080;
 if (process.env.RENDER || process.env.PORT) {
-  http.createServer((req, res) => {
+  const server = http.createServer((req, res) => {
     res.writeHead(200);
     res.end('Agent is running\\n');
-  }).listen(port, () => {
+  });
+  server.on('error', (e: any) => {
+    if (e.code === 'EADDRINUSE') {
+      console.log('⚠️ Port in use, ignoring (likely a child process for a room).');
+    } else {
+      console.error('HTTP Server Error:', e);
+    }
+  });
+  server.listen(port, () => {
     console.log(`🚀 Health check server listening on port ${port}`);
   });
 }
