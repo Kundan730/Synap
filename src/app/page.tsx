@@ -44,20 +44,20 @@ const features = [
   },
   {
     icon: Eye,
-    title: "Live Visual Generation",
-    desc: "AI creates diagrams, flowcharts, mind maps, and graphs as you learn — right in your session.",
+    title: "Live Visual Whiteboard",
+    desc: "Watch the AI populate the whiteboard as it speaks — Manim animations, Desmos graphs, GeoGebra constructions, 3D simulations, Mermaid diagrams, and a runnable code sandbox.",
     color: "#8b5cf6",
   },
   {
     icon: MessageSquare,
     title: "Voice & Text Chat",
-    desc: "Ask questions through voice or text. The AI responds naturally, like a real tutor.",
+    desc: "Ask questions through voice or text. Sub-second voice latency via Gemini Live — feels like a real tutor, not a chatbot.",
     color: "#06b6d4",
   },
   {
     icon: Zap,
-    title: "Instant Quizzes",
-    desc: "AI generates quizzes on-the-fly to test your understanding during the session.",
+    title: "Interactive Quizzes",
+    desc: "When the AI senses a checkpoint, it pops a quiz onto the whiteboard with answer feedback and explanations.",
     color: "#f59e0b",
   },
   {
@@ -96,8 +96,8 @@ const howItWorks = [
   {
     step: "04",
     icon: BookOpen,
-    title: "Review & Retain",
-    desc: "Get AI-generated notes, summaries, and quizzes to solidify your understanding.",
+    title: "Pick Up Where You Left Off",
+    desc: "Every whiteboard, diagram, and conversation auto-saves. Reopen the session and the AI remembers exactly where you stopped.",
   },
 ];
 
