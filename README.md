@@ -1,109 +1,94 @@
-# Synap AI - Multimodal Real-Time Tutor 🧠
+# Synap
 
-Synap AI is a production-grade, highly interactive AI tutoring platform powered by **WebRTC** and the bleeding-edge **Gemini Flash Native Audio** model. It moves beyond traditional text-based chatbots by offering an ultra-low latency voice experience combined with a **Proactive Visual Whiteboard** that auto-generates code, 3D simulations, and diagrams in real-time as the AI speaks.
+Real-time AI tutoring with a live whiteboard. The web app (Next.js) handles UI,
+session persistence, and signing. A separate LiveKit voice agent (`agent.ts`)
+runs the Gemini realtime model, listens to room audio, and pushes tool calls
+back to the browser over a data channel.
 
----
+## Stack
 
-## 🌟 Key Features
+- Next.js 16 (App Router) + React 19
+- LiveKit (WebRTC rooms, voice agent via `@livekit/agents`)
+- Gemini 2.5 (chat, transcribe, visualize via REST; realtime audio via the agent)
+- ElevenLabs (TTS fallback)
+- MongoDB (session persistence)
+- Tailwind v4
 
-- **Ultra-Low Latency Voice (WebRTC)**: Powered by LiveKit, offering real-time, interruptible voice conversations indistinguishable from a human tutor.
-- **Proactive Visual Whiteboard**: 
-  - ⚛️ **Live Code Sandbox**: Generates and runs multi-file React/JS projects directly on the board.
-  - 📈 **Math & Graphs**: Instantly plots algebraic equations using the Desmos API.
-  - 📊 **Architecture Diagrams**: Auto-generates flowcharts and state machines using Mermaid.js.
-  - 🎮 **Interactive 3D Applets**: Creates physics engines, planetary simulations, and interactive HTML5 canvases on the fly.
-- **Flawless Turn Detection**: Utilizes **Silero VAD** (Voice Activity Detection) to completely eliminate background noise interference and ensure the AI responds exactly when you stop talking.
-- **Parallel Multimodality**: Chat seamlessly with both Voice and Text. The AI dynamically merges text inputs into its audio stream context.
-- **Persistent Sessions**: Powered by MongoDB, allowing users to drop out of a session and return later with their entire whiteboard, code, and chat history perfectly restored.
-- **Premium UI/UX**: Designed with a sleek, dark-mode focused aesthetic, glassmorphism, and responsive Tailwind CSS layouts.
+## Required environment
 
----
+Create `.env.local`:
 
-## 🏗 Architecture
+```bash
+# Gemini (used by /api/chat, /api/visualize, /api/transcribe, and agent.ts)
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-2.5-flash       # optional, defaults to gemini-2.5-flash
 
-The application utilizes a robust Dual-Deployment architecture to separate UI rendering from long-running AI worker processes:
+# LiveKit (rooms + agent dispatch)
+LIVEKIT_API_KEY=
+LIVEKIT_API_SECRET=
+NEXT_PUBLIC_LIVEKIT_URL=wss://your-project.livekit.cloud
 
-1. **Frontend / API (Vercel)** 
-   - Built with **Next.js 16 (App Router)** and React.
-   - Handles the WebRTC client connections, Whiteboard UI, and serverless API endpoints (like MongoDB sync and 3D Applet generation).
-2. **AI Agent Backend (Render/Railway)**
-   - A standalone Node.js process (`agent.ts`) running the `@livekit/agents` framework.
-   - Manages the continuous WebSocket connection to Google Cloud's Gemini Realtime API and executes tool callbacks.
+# MongoDB (session persistence)
+MONGODB_URI=mongodb+srv://...
 
----
+# ElevenLabs TTS (used by /api/voice)
+ELEVENLABS_API_KEY=
 
-## 🚀 Getting Started
-
-### Prerequisites
-- Node.js v20+
-- A [LiveKit Cloud](https://cloud.livekit.io/) account.
-- A [Google AI Studio](https://aistudio.google.com/) API Key.
-- A [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) connection URI.
-
-### Environment Variables
-Create a `.env.local` file in the root directory and add the following:
-
-```env
-# LiveKit Cloud Configuration
-LIVEKIT_URL=wss://your-project.livekit.cloud
-LIVEKIT_API_KEY=your_api_key
-LIVEKIT_API_SECRET=your_api_secret
-
-# AI Models
-GEMINI_API_KEY=your_gemini_key
-
-# Database
-MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/
+# Zoom Video SDK (used by /api/zoom; only if you wire up a Zoom view)
+ZOOM_SDK_KEY=
+ZOOM_SDK_SECRET=
 ```
 
-### Local Development
+## Running
 
-1. **Install Dependencies**
-   ```bash
-   npm install
-   ```
+```bash
+npm install
+npm run dev          # runs Next on :3000 AND the LiveKit agent in parallel
+```
 
-2. **Start the Frontend & Agent**
-   This command concurrently runs the Next.js frontend and the LiveKit AI Agent worker:
-   ```bash
-   npm run dev
-   ```
+Or run them separately:
 
-3. Open `http://localhost:3000` in your browser. Enter a Room Name to instantly spin up an interactive tutoring session!
+```bash
+npm run dev:next     # Next.js dev server only
+npm run dev:agent    # LiveKit voice agent only (tsx agent.ts dev)
+```
 
----
+The agent registers under name `synap-tutor`. The `/api/livekit` route
+dispatches it to a room when the room is first created.
 
-## 🛠 Tech Stack
+## Security notes
 
-- **Framework**: Next.js (React), TypeScript
-- **Styling**: Tailwind CSS, Lucide Icons
-- **Real-time Comms**: LiveKit, WebRTC
-- **AI / LLM**: Google Gemini Flash Native Audio Preview
-- **Interactive UI**: Sandpack (CodeSandbox), Desmos, Mermaid.js
-- **Database**: MongoDB
+The API routes under `src/app/api/*` are **not** authenticated yet. Until you
+add an auth provider (Clerk / NextAuth / signed cookies), treat this as a demo
+deployment only. Specifically:
 
----
+- `/api/livekit` mints LiveKit JWTs for any caller that supplies `room` and
+  `username`. Inputs are validated and the route no longer destroys an
+  existing room on a normal join, but anonymous callers can still join any
+  room they can guess the name of.
+- `/api/zoom` mints Zoom Video SDK signatures with the same caveat. The
+  `role` field defaults to `0` (participant) and only `1` is accepted as host.
+- `/api/session` reads/writes MongoDB state keyed by room name with no auth.
+- `/api/visualize` returns model-generated HTML. The renderer mounts it inside
+  a `sandbox="allow-scripts"` iframe so it cannot reach this app's origin, but
+  the model is still generating arbitrary code — keep that in mind.
 
-## 🌍 Deployment
+Search the codebase for `TODO(auth):` to find the spots that need wiring.
 
-### Deploying the Frontend (Vercel)
-Connect your GitHub repository to Vercel. Ensure you add all environment variables to the Vercel Project Settings. Vercel will automatically build the Next.js application using `npm run build`.
+## Project layout
 
-### Deploying the Agent (Render)
-Create a new "Web Service" on Render.
-- **Build Command**: `npm install`
-- **Start Command**: `npm run start:agent`
-- Make sure to add the `.env` variables here as well. The agent includes a lightweight HTTP server on port 8080 to pass Render's health checks.
+```
+agent.ts                       LiveKit voice agent (Gemini realtime)
+src/app/                       Next App Router routes
+src/app/api/                   Server routes (chat, visualize, voice,
+                                transcribe, session, livekit, zoom)
+src/components/                Renderers (Mermaid, Desmos, HTML applet,
+                                Sandpack, Tldraw, Quiz, etc.)
+src/lib/                       gemini.ts, elevenlabs.ts, mongodb.ts
+```
 
----
+## Lint
 
-## 🔮 Future Integrations & Roadmap
-
-We are constantly expanding Synap AI's capabilities. Upcoming features include:
-- **ElevenLabs Custom TTS**: Support for switching from Gemini Native Audio to a `PipelineAgent` architecture, enabling ultra-realistic, highly customizable custom voices via ElevenLabs.
-- **Snowflake Analytics Data-Lake**: Enterprise-grade telemetry and learning analytics integration with Snowflake to track student progression and query massive educational datasets.
-- **Blackboard / Canvas LMS**: Direct integration into institutional Learning Management Systems to fetch assignments, sync grades, and authenticate student identities.
-
----
-
-*Built for the future of interactive learning.*
+```bash
+npm run lint
+```

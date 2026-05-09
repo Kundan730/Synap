@@ -230,7 +230,7 @@ export default defineAgent({
         console.log('📝 User sent text message:', text);
         try {
           // Avoid session.interrupt() as Gemini Realtime doesn't support truncation (causes 1011 error)
-          chatCtx.append({ role: 'user', content: `[TEXT MESSAGE FROM USER]: ${text}` });
+          chatCtx.addMessage({ role: 'user', content: `[TEXT MESSAGE FROM USER]: ${text}` });
           session.generateReply();
         } catch (e) {
           console.error('⚠️ Failed to reply to text message:', e);
