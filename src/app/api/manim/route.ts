@@ -57,15 +57,26 @@ export async function POST(req: NextRequest) {
       | { ok: true; result: { video_b64: string; size_bytes: number } }
       | { ok: false; status: number; details: string }
     > => {
+      const isTruncationError = regenerationHint && /Error|never closed|unexpected EOF|incomplete/i.test(regenerationHint);
       const userPrompt = regenerationHint
-        ? `Your previous attempt failed: ${regenerationHint}\n\nWrite a NEW, COMPLETE Manim scene that visually explains: "${topic}". The whole script must end with self.wait(). Do not truncate.`
+        ? `Your previous attempt FAILED with: ${regenerationHint}
+
+${isTruncationError
+  ? "This means your output was truncated mid-statement. Write a SHORTER, SIMPLER scene this time — fewer mobjects, simpler logic, no nested for-loops with long bodies. Every line must be syntactically complete."
+  : "Fix the specific error above."}
+
+Write a NEW, COMPLETE Manim scene that visually explains: "${topic}". The whole script must end with self.wait(). Do not truncate. Verify every parenthesis is closed and every variable is defined before submitting.`
         : `Write a Manim scene that visually explains: "${topic}". Keep it tight and educational, ~10 seconds of animation.`;
 
       const data = await geminiGenerate({
         prompt: userPrompt,
         systemInstruction: MANIM_SYSTEM_PROMPT,
-        temperature: 0.2,        // lower = stays on script, less likely to truncate
-        maxTokens: 4096,         // bumped from 2048 to give algorithms room to breathe
+        // gemini-2.5-pro is much more reliable for longer structured code than
+        // Flash. Costs ~10x more per call (~1¢ vs ~0.1¢) but cuts truncation
+        // failures dramatically. Worth it for the Manim path specifically.
+        model: "gemini-2.5-pro",
+        temperature: 0.2,
+        maxTokens: 8192,         // Pro can use the headroom; truncation is much rarer here
       });
 
       let code = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";

@@ -64,8 +64,13 @@ export async function geminiGenerate(options: {
   systemInstruction?: string;
   temperature?: number;
   maxTokens?: number;
+  // Per-call override. Defaults to GEMINI_MODEL. Use "gemini-2.5-pro" for
+  // tasks where reliability matters more than latency (e.g. generating
+  // longer, structured code that must compile on the first try).
+  model?: string;
 }) {
-  const url = `${GEMINI_BASE_URL}/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+  const model = options.model || GEMINI_MODEL;
+  const url = `${GEMINI_BASE_URL}/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
 
   const body: Record<string, unknown> = {
     contents: typeof options.prompt === "string"
