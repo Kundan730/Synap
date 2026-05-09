@@ -1,17 +1,17 @@
 "use client";
 import React from "react";
-import { Sandpack } from "@codesandbox/sandpack-react";
+import { Sandpack, type SandpackPredefinedTemplate } from "@codesandbox/sandpack-react";
 
-export default function CodeSandbox({ initialCode, language = "react" }: { initialCode?: string, language?: string }) {
-  const templateMap: Record<string, any> = {
-    "react": "react",
-    "javascript": "vanilla",
-    "html": "vanilla",
-    "typescript": "vanilla-ts",
-    "vue": "vue",
+export default function CodeSandbox({ initialCode, language = "react" }: { initialCode?: string; language?: string }) {
+  const templateMap: Record<string, SandpackPredefinedTemplate> = {
+    react: "react",
+    javascript: "vanilla",
+    html: "vanilla",
+    typescript: "vanilla-ts",
+    vue: "vue",
   };
 
-  const template = templateMap[language] || "react";
+  const template = templateMap[language] ?? "react";
   const filename = template === "react" ? "/App.js" : "/index.js";
 
   const files = React.useMemo(() => {
@@ -24,11 +24,13 @@ export default function CodeSandbox({ initialCode, language = "react" }: { initi
         template={template}
         theme="dark"
         options={{
-          showNavigator: false,
-          editorHeight: 600,
+          showNavigator: true,
+          showLineNumbers: true,
           showTabs: true,
           showInlineErrors: true,
           wrapContent: true,
+          editorHeight: 600,
+          resizablePanels: true,
         }}
         files={files}
       />

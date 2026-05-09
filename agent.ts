@@ -35,7 +35,13 @@ IMPORTANT:
   - Interactive Physics/3D/Simulations/Animations -> Use generate_interactive_applet
   
 CRITICAL RULE FOR CODE/SIMULATIONS:
-If the user asks for a simulation, animation, or interactive applet (like the solar system or a physics engine), you MUST use the \`generate_interactive_applet\` tool and provide the topic. NEVER try to write the code yourself. NEVER output raw code blocks in your spoken/chat response. ALWAYS delegate it using the tool so it appears on the whiteboard immediately!`;
+If the user asks for a simulation, animation, or interactive applet (like the solar system or a physics engine), you MUST use the \`generate_interactive_applet\` tool and provide the topic. NEVER try to write the code yourself. NEVER output raw code blocks in your spoken/chat response. ALWAYS delegate it using the tool so it appears on the whiteboard immediately!
+
+CODE GENERATION RULES (open_code_editor):
+- When the user asks for a working app, component, or program (e.g. "todo list", "calculator", "snake game", "react counter"), you MUST send the COMPLETE WORKING IMPLEMENTATION as \`initialCode\` — NOT a placeholder, NOT "Hello world", NOT a stub you intend to extend later.
+- For non-trivial apps, this means roughly 50-200 lines of real, runnable code. Don't artificially shorten it.
+- Include all state, handlers, and styling needed to actually use the thing. The user wants to interact with the result, not watch you scaffold.
+- Only emit a tiny stub if the user explicitly asks for "the simplest possible example" or "just the boilerplate".`;
 
 export default defineAgent({
   entry: async (ctx) => {
@@ -110,10 +116,10 @@ export default defineAgent({
         }
       }),
       open_code_editor: llm.tool({
-        description: 'Open an interactive code sandbox on the whiteboard. Use this for programming tutorials or coding challenges.',
+        description: 'Open an interactive code sandbox on the whiteboard with a complete, runnable program. When the user asks for an app or component (todo list, calculator, counter, etc.), pass the FULL working implementation in initialCode — not a placeholder.',
         parameters: z.object({
           language: z.enum(['react', 'javascript', 'html', 'typescript', 'vue']).describe('The programming language environment to use.'),
-          initialCode: z.string().optional().describe('Optional initial code to populate the editor with.')
+          initialCode: z.string().describe('The COMPLETE source code for the editor. For a working app, this should be the full implementation (typically 50-200 lines) including all state, handlers, and basic styling. Do NOT send a stub or "hello world" placeholder when the user asked for a real app.')
         }),
         execute: async ({ language, initialCode }, _) => {
           console.log('💻 LLM called open_code_editor:', language);
