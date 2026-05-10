@@ -84,7 +84,7 @@ function SessionPageInner() {
   // Optional URL params from /upload — concept badges link with these.
   const searchParams = useSearchParams();
   const initialTopic = searchParams.get("topic") || "";
-  const initialRoom = searchParams.get("room") || "synap-lab-1";
+  const initialRoom = searchParams.get("room") || `synap-lab-${Math.random().toString(36).slice(2, 8)}`;
 
   // LiveKit Connection State
   const [token, setToken] = useState("");
@@ -187,9 +187,7 @@ function ActiveSessionUI() {
   const [sideOpen, setSideOpen] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>("chat");
   const [chatInput, setChatInput] = useState("");
-  const [messages, setMessages] = useState<ChatMsg[]>([
-    { id: 1, role: "ai", text: "Welcome to the WebRTC Room! I am your Synap AI tutor. What would you like to learn today?", time: NOW() },
-  ]);
+  const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [mermaidCode, setMermaidCode] = useState<string>("graph TD\n    A[\"🚀 LiveKit WebRTC Connected\"] --> B[\"Ultra-low latency audio/video\"]\n    A --> C[\"AI Agent Ready\"]\n    B --> D[\"Interactive Learning\"]");
@@ -542,24 +540,21 @@ function ActiveSessionUI() {
     }
   }, [agentTranscriptions, topic, generateVisualization]);
 
-  const sendMessage = useCallback(async () => {
-    const text = chatInput.trim();
+  const sendMessage = useCallback(async (override?: string) => {
+    const text = (override ?? chatInput).trim();
     if (!text) return;
 
-    // We add it to our local messages array for instant UI feedback
     const userMsg: ChatMsg = { id: Date.now(), role: "user", text, time: NOW() };
     setMessages((m) => [...m, userMsg]);
-    setChatInput("");
-    if (messages.length <= 2) setTopic(text.slice(0, 50));
+    if (override === undefined) setChatInput("");
+    if (messagesRef.current.length <= 2) setTopic(text.slice(0, 50));
 
     try {
-      // Send the message directly into the LiveKit Room chat!
-      // The Gemini voice agent automatically listens to this channel and will respond with voice/tools.
       await sendChat(text);
     } catch (error) {
       console.error("Failed to send text to agent:", error);
     }
-  }, [chatInput, sendChat, messages]);
+  }, [chatInput, sendChat]);
 
   const tabs: { key: Tab; icon: typeof MessageSquare; label: string }[] = [
     { key: "chat", icon: MessageSquare, label: "Chat" },
@@ -964,12 +959,36 @@ function ActiveSessionUI() {
               {/* Chat input */}
               {activeTab === "chat" && (
                 <div className="p-5 border-t border-slate-100 shrink-0 bg-white">
+                  {messages.filter(m => m.role === "user").length === 0 && (
+                    <div className="mb-3">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
+                        Try one of these
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          "Animate the Pythagorean theorem",
+                          "Build me a React todo app",
+                          "Show a sine wave from a unit circle",
+                          "Visualize bubble sort",
+                        ].map((prompt) => (
+                          <button
+                            key={prompt}
+                            onClick={() => sendMessage(prompt)}
+                            className="text-xs px-3 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium transition-colors"
+                          >
+                            {prompt}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex gap-3">
                     <input value={chatInput} onChange={(e) => setChatInput(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && sendMessage()}
                       placeholder="Ask the AI Tutor..." disabled={isTyping}
                       className="flex-1 px-5 py-4 text-sm font-medium text-slate-900 placeholder:text-slate-400 rounded-2xl border border-slate-200 bg-slate-50 outline-none transition-all disabled:opacity-50 focus:border-slate-400 focus:bg-white focus:shadow-[0_0_0_4px_rgba(15,23,42,0.05)]" />
-                    <button onClick={sendMessage} disabled={isTyping || !chatInput.trim()}
+                    <button onClick={() => sendMessage()} disabled={isTyping || !chatInput.trim()}
                       className="w-14 h-14 rounded-2xl flex items-center justify-center border-0 bg-slate-900 text-white shadow-md shadow-slate-900/20 disabled:opacity-40 hover:bg-black transition-colors cursor-pointer">
                       {isTyping ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5 ml-1" />}
                     </button>
