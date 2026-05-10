@@ -238,6 +238,22 @@ function ActiveSessionUI() {
   const voiceAssistant = useVoiceAssistant();
   const agentTranscriptions = voiceAssistant.agentTranscriptions;
 
+  const [agentReady, setAgentReady] = useState(false);
+  const sawAgentSpeakingRef = useRef(false);
+  useEffect(() => {
+    if (agentReady) return;
+    if (voiceAssistant.state === "speaking") {
+      sawAgentSpeakingRef.current = true;
+    } else if (voiceAssistant.state === "listening" && sawAgentSpeakingRef.current) {
+      setAgentReady(true);
+    }
+  }, [voiceAssistant.state, agentReady]);
+  useEffect(() => {
+    if (agentReady) return;
+    const t = setTimeout(() => setAgentReady(true), 12000);
+    return () => clearTimeout(t);
+  }, [agentReady]);
+
   // If the user came from /upload with a topic param, send the agent a single
   // priming chat message — but ONLY after it has finished its initial greeting.
   // Sending it earlier creates a race where Gemini Live processes the greeting
@@ -961,25 +977,34 @@ function ActiveSessionUI() {
                 <div className="p-5 border-t border-slate-100 shrink-0 bg-white">
                   {messages.filter(m => m.role === "user").length === 0 && (
                     <div className="mb-3">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
-                        Try one of these
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {[
-                          "Animate the Pythagorean theorem",
-                          "Build me a React todo app",
-                          "Show a sine wave from a unit circle",
-                          "Visualize bubble sort",
-                        ].map((prompt) => (
-                          <button
-                            key={prompt}
-                            onClick={() => sendMessage(prompt)}
-                            className="text-xs px-3 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium transition-colors"
-                          >
-                            {prompt}
-                          </button>
-                        ))}
-                      </div>
+                      {agentReady ? (
+                        <>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
+                            Try one of these
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {[
+                              "Animate the Pythagorean theorem",
+                              "Build me a React todo app",
+                              "Show a sine wave from a unit circle",
+                              "Visualize bubble sort",
+                            ].map((prompt) => (
+                              <button
+                                key={prompt}
+                                onClick={() => sendMessage(prompt)}
+                                className="text-xs px-3 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium transition-colors"
+                              >
+                                {prompt}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="flex items-center gap-2 text-[11px] text-slate-400 font-medium">
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          Waiting for the AI to finish greeting…
+                        </div>
+                      )}
                     </div>
                   )}
 
