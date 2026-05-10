@@ -24,6 +24,7 @@ export default function Navbar() {
   const navLinks = [
     { label: "Features", href: "#features" },
     { label: "How It Works", href: "#how-it-works" },
+    { label: "Upload", href: "/upload" },
     { label: "Dashboard", href: "/dashboard" },
   ];
 

@@ -45,14 +45,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Only .pdf files are accepted right now" }, { status: 400 });
     }
 
-    // pdf-parse v2+ exports a named function. Dynamic import keeps it out of the
-    // build-time module graph so Next/Turbopack doesn't try to bundle its
-    // pdfjs-dist dependency unnecessarily.
-    const buf = Buffer.from(await file.arrayBuffer());
-    const pdfModule = await import("pdf-parse");
-    const pdfParse = (pdfModule as unknown as { pdf: (b: Buffer) => Promise<{ text: string }> }).pdf
-      ?? (pdfModule as unknown as { default: (b: Buffer) => Promise<{ text: string }> }).default;
-    const parsed = await pdfParse(buf);
+    // pdf-parse v1 — runs entirely on the Node main thread, no pdfjs worker.
+    // We import the inner lib directly to dodge the package's index.js, which
+    // has a stray debug block that tries to read a test fixture at runtime
+    // (triggered under Turbopack's module wrapping). Long-standing issue:
+    // https://gitlab.com/autokent/pdf-parse/-/issues/24
+    const pdfBytes = Buffer.from(await file.arrayBuffer());
+    const pdfParseModule = await import("pdf-parse/lib/pdf-parse.js");
+    const pdfParse = (pdfParseModule as unknown as { default: (b: Buffer) => Promise<{ text: string }> }).default;
+    const parsed = await pdfParse(pdfBytes);
     const text = (parsed.text || "").slice(0, MAX_TEXT_FOR_LLM).trim();
 
     if (!text) {
@@ -66,15 +67,37 @@ export async function POST(req: NextRequest) {
       temperature: 0.2,
       maxTokens: 1024,
     });
-    let raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    raw = raw.replace(/```json/gi, "").replace(/```/g, "").trim();
+    const raw = (data?.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
 
-    let parsedJson: { title?: string; concepts?: unknown };
+    // Robust JSON extraction. Gemini sometimes wraps in ```json ... ```,
+    // sometimes adds a preamble like "Here is the JSON:", and very rarely
+    // emits a refusal as plain prose. We strip fences first, then if that
+    // still doesn't parse, fall back to the largest {...} blob in the text.
+    const stripped = raw.replace(/```json/gi, "").replace(/```/g, "").trim();
+    let parsedJson: { title?: string; concepts?: unknown } | null = null;
     try {
-      parsedJson = JSON.parse(raw);
+      parsedJson = JSON.parse(stripped);
     } catch {
-      console.error("Gemini concept extraction returned non-JSON:", raw.slice(0, 500));
-      return NextResponse.json({ error: "Concept extraction failed" }, { status: 502 });
+      const blob = stripped.match(/\{[\s\S]*\}/);
+      if (blob) {
+        try {
+          parsedJson = JSON.parse(blob[0]);
+        } catch {
+          /* fall through */
+        }
+      }
+    }
+
+    if (!parsedJson) {
+      console.error("Gemini concept extraction returned non-JSON. Raw output:", raw.slice(0, 800));
+      return NextResponse.json(
+        {
+          error: "Concept extraction failed",
+          // Preview helps debug from the browser without server access.
+          preview: raw.slice(0, 300),
+        },
+        { status: 502 }
+      );
     }
 
     const title = typeof parsedJson.title === "string" ? parsedJson.title.slice(0, 80) : file.name;

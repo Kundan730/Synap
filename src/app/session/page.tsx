@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Mic, MicOff, Video as VideoIcon, VideoOff, PhoneOff, Send, Sparkles,
@@ -59,9 +60,23 @@ function extractMermaid(text: string): string | null {
 }
 
 export default function SessionPage() {
+  // useSearchParams in Next 16 must be inside a Suspense boundary.
+  return (
+    <Suspense fallback={<div className="h-screen flex items-center justify-center text-slate-500">Loading…</div>}>
+      <SessionPageInner />
+    </Suspense>
+  );
+}
+
+function SessionPageInner() {
+  // Optional URL params from /upload — concept badges link with these.
+  const searchParams = useSearchParams();
+  const initialTopic = searchParams.get("topic") || "";
+  const initialRoom = searchParams.get("room") || "synap-lab-1";
+
   // LiveKit Connection State
   const [token, setToken] = useState("");
-  const [roomName, setRoomName] = useState("synap-lab-1");
+  const [roomName, setRoomName] = useState(initialRoom);
   const [username, setUsername] = useState("Student");
 
   // Try to load env vars directly if available
@@ -99,9 +114,18 @@ export default function SessionPage() {
         <div className="card max-w-md w-full text-center shadow-2xl border border-slate-200/60 rounded-3xl p-10 bg-white/80 backdrop-blur-xl">
           <Logo iconOnly size="lg" className="justify-center mb-8" />
           <h1 className="text-3xl font-extrabold mb-3 text-slate-900 tracking-tight">Synap Lab</h1>
-          <p className="text-base mb-10 text-slate-500 leading-relaxed">
+          <p className="text-base mb-6 text-slate-500 leading-relaxed">
             Connect to the real-time AI Whiteboard.
           </p>
+
+          {initialTopic && (
+            <div className="mb-6 mx-auto inline-flex items-center gap-2 px-4 py-2 rounded-full bg-indigo-50 border border-indigo-200">
+              <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+              <span className="text-xs font-semibold text-indigo-700">
+                Today's topic: {initialTopic}
+              </span>
+            </div>
+          )}
 
           <div className="space-y-4 mb-8 text-left">
             <div>
@@ -158,7 +182,9 @@ function ActiveSessionUI() {
   const [fullscreen, setFullscreen] = useState(false);
   const [mermaidCode, setMermaidCode] = useState<string>("graph TD\n    A[\"🚀 LiveKit WebRTC Connected\"] --> B[\"Ultra-low latency audio/video\"]\n    A --> C[\"AI Agent Ready\"]\n    B --> D[\"Interactive Learning\"]");
   const [vizLoading, setVizLoading] = useState(false);
-  const [topic, setTopic] = useState("General Learning");
+  // If we arrived here from /upload (?topic=...), seed the topic with it.
+  const seedTopic = useSearchParams().get("topic") || "";
+  const [topic, setTopic] = useState(seedTopic || "General Learning");
   const [sessionTime, setSessionTime] = useState(0);
   const [viewMode, setViewMode] = useState<"mermaid" | "desmos" | "html" | "video" | "drawing" | "code" | "quiz" | "manim" | "geogebra">("mermaid");
   const [desmosEquations, setDesmosEquations] = useState<string[]>([]);
@@ -189,6 +215,45 @@ function ActiveSessionUI() {
   // Voice Assistant & Transcriptions
   const voiceAssistant = useVoiceAssistant();
   const agentTranscriptions = voiceAssistant.agentTranscriptions;
+
+  // If the user came from /upload with a topic param, send the agent a single
+  // priming chat message — but ONLY after it has finished its initial greeting.
+  // Sending it earlier creates a race where Gemini Live processes the greeting
+  // instruction and drops the chat message on the floor.
+  //
+  // We track the agent's voiceAssistant.state transitions: it goes
+  // initializing → listening → speaking (greeting) → listening (ready). We
+  // wait for the speaking-then-listening transition before sending. A 12-second
+  // fallback fires if the agent never speaks (network blip, no greeting).
+  const seedSentRef = useRef(false);
+  const hasGreetedRef = useRef(false);
+  useEffect(() => {
+    if (seedSentRef.current || !seedTopic) return;
+    if (voiceAssistant.state === "speaking") {
+      hasGreetedRef.current = true;
+      return; // never send while agent is talking
+    }
+    if (hasGreetedRef.current && voiceAssistant.state === "listening") {
+      seedSentRef.current = true;
+      const primer = `I'd like to learn about "${seedTopic}". Please teach me this concept step by step, using your visual tools when helpful.`;
+      sendChat(primer).catch(e => console.error("Failed to seed topic:", e));
+      setMessages(m => [...m, { id: Date.now(), role: "user", text: primer, time: NOW() }]);
+    }
+  }, [seedTopic, voiceAssistant.state, sendChat]);
+
+  // Fallback: if the agent never enters "speaking" within 12s (unusual — would
+  // mean greeting failed), send the primer anyway so the user isn't stuck.
+  useEffect(() => {
+    if (!seedTopic) return;
+    const timer = setTimeout(() => {
+      if (seedSentRef.current) return;
+      seedSentRef.current = true;
+      const primer = `I'd like to learn about "${seedTopic}". Please teach me this concept step by step, using your visual tools when helpful.`;
+      sendChat(primer).catch(e => console.error("Failed to seed topic (fallback):", e));
+      setMessages(m => [...m, { id: Date.now(), role: "user", text: primer, time: NOW() }]);
+    }, 12000);
+    return () => clearTimeout(timer);
+  }, [seedTopic, sendChat]);
 
   // Track user microphone for user transcriptions
   const userAudioTracks = useTracks([Track.Source.Microphone]);

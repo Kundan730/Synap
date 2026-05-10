@@ -66,8 +66,9 @@ export default function UploadPage() {
       const data = await res.json();
 
       if (!res.ok) {
+        const detail = data.preview ? `${data.error ?? "Upload failed"} — model said: ${data.preview}` : (data.error ?? "Upload failed");
         setFiles(curr => curr.map(f => f.id === id
-          ? { ...f, status: "error", error: data.error ?? "Upload failed" }
+          ? { ...f, status: "error", error: detail }
           : f));
         return;
       }
@@ -193,14 +194,28 @@ export default function UploadPage() {
 
                 {f.concepts && f.concepts.length > 0 && (
                   <div className="mt-3 pt-3 border-t" style={{ borderColor: "var(--color-border-light)" }}>
-                    <p className="text-xs font-medium mb-2" style={{ color: "var(--color-text-muted)" }}>Extracted Concepts</p>
+                    <p className="text-xs font-medium mb-2" style={{ color: "var(--color-text-muted)" }}>
+                      Extracted Concepts <span className="text-slate-400 font-normal">— click any to start a focused session</span>
+                    </p>
                     <div className="flex flex-wrap gap-2">
-                      {f.concepts.map((c, ci) => (
-                        <span key={ci} className="badge badge-primary text-[11px]">{c}</span>
-                      ))}
+                      {f.concepts.map((c, ci) => {
+                        const room = `lab-${Date.now().toString(36)}-${ci}`;
+                        return (
+                          <Link
+                            key={ci}
+                            href={`/session?topic=${encodeURIComponent(c)}&room=${room}`}
+                            className="badge badge-primary text-[11px] no-underline transition-all hover:scale-105 hover:shadow-md cursor-pointer"
+                          >
+                            {c}
+                          </Link>
+                        );
+                      })}
                     </div>
-                    <Link href="/session" className="btn-primary mt-4 text-xs px-4 py-2 no-underline inline-flex">
-                      <Sparkles className="w-3.5 h-3.5" /> Learn This in Live Session
+                    <Link
+                      href={`/session?topic=${encodeURIComponent(f.title ?? f.name)}&room=lab-${Date.now().toString(36)}-doc`}
+                      className="btn-primary mt-4 text-xs px-4 py-2 no-underline inline-flex"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" /> Learn the whole document
                     </Link>
                   </div>
                 )}

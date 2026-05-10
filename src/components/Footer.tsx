@@ -38,6 +38,9 @@ export default function Footer() {
               title: "Product",
               links: [
                 { label: "Live Sessions", href: "/session" },
+                { label: "Upload Documents", href: "/upload" },
+                { label: "Dashboard", href: "/dashboard" },
+                { label: "Analytics", href: "/analytics" },
               ],
             },
             {
