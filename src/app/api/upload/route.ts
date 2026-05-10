@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { ObjectId } from "mongodb";
 import clientPromise from "@/lib/mongodb";
 import { geminiGenerate, GEMINI_API_KEY } from "@/lib/gemini";
 
 export const maxDuration = 60;
 
 const MAX_PDF_BYTES = 10 * 1024 * 1024; // 10 MB cap
-const MAX_TEXT_FOR_LLM = 60_000;        // chars sent to Gemini
+const MAX_TEXT_FOR_LLM = 60_000;        // chars sent to Gemini for concept extraction
+const MAX_TEXT_FOR_STORAGE = 80_000;    // cap on what we persist for later session context
 const MAX_CONCEPTS = 12;
 
 const CONCEPT_SYSTEM_PROMPT = `You extract a study syllabus from raw document text.
@@ -107,23 +109,27 @@ export async function POST(req: NextRequest) {
           .slice(0, MAX_CONCEPTS)
       : [];
 
-    // Persist a small record so the dashboard / future sessions can use it.
+    // Persist the upload — including the truncated text so a later session
+    // can fetch this document as agent context (RAG-lite).
+    let uploadId: string | undefined;
     try {
       const client = await clientPromise;
       const db = client.db("pratyax");
-      await db.collection("uploads").insertOne({
+      const result = await db.collection("uploads").insertOne({
         title,
         filename: file.name,
         sizeBytes: file.size,
         concepts,
+        text: text.slice(0, MAX_TEXT_FOR_STORAGE),
         createdAt: new Date(),
       });
+      uploadId = result.insertedId.toString();
     } catch (e) {
       // Persistence failure shouldn't block the user from seeing their concepts.
       console.warn("Failed to persist upload record:", e);
     }
 
-    return NextResponse.json({ title, concepts, filename: file.name, sizeBytes: file.size });
+    return NextResponse.json({ uploadId, title, concepts, filename: file.name, sizeBytes: file.size });
   } catch (error: unknown) {
     console.error("Upload API error:", error);
     const message = error instanceof Error ? error.message : "Unknown error";
@@ -131,18 +137,47 @@ export async function POST(req: NextRequest) {
   }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const client = await clientPromise;
     const db = client.db("pratyax");
+    const id = req.nextUrl.searchParams.get("id");
+
+    // GET /api/upload?id=<ObjectId> — single upload, includes the full text
+    // so a session page can use it as agent context.
+    if (id) {
+      let oid: ObjectId;
+      try {
+        oid = new ObjectId(id);
+      } catch {
+        return NextResponse.json({ error: "Invalid upload id" }, { status: 400 });
+      }
+      const u = await db.collection("uploads").findOne({ _id: oid });
+      if (!u) return NextResponse.json({ error: "Upload not found" }, { status: 404 });
+      return NextResponse.json({
+        upload: {
+          id: u._id.toString(),
+          title: u.title,
+          filename: u.filename,
+          sizeBytes: u.sizeBytes,
+          concepts: u.concepts ?? [],
+          text: u.text ?? "",
+          createdAt: u.createdAt,
+        },
+      });
+    }
+
+    // GET /api/upload — list of recent uploads, no text payload (would bloat
+    // the response and isn't needed for the gallery view).
     const uploads = await db
       .collection("uploads")
-      .find({})
+      .find({}, { projection: { text: 0 } })
       .sort({ createdAt: -1 })
       .limit(50)
       .toArray();
     return NextResponse.json({
       uploads: uploads.map((u) => ({
+        id: u._id.toString(),
         title: u.title,
         filename: u.filename,
         sizeBytes: u.sizeBytes,

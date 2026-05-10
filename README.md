@@ -55,8 +55,16 @@ Synap is a real-time learning companion. You speak (or type), the AI responds in
 
 The agent picks the right one — you don't switch tabs.
 
-### Document understanding
-- Upload a PDF on `/upload`. `pdf-parse` extracts text, Gemini extracts a list of teachable concepts, all persisted to MongoDB. The concept badges link straight into a session topic.
+### Document understanding (RAG-lite)
+- **Upload a PDF on `/upload`** → `pdf-parse` extracts text, Gemini extracts a list of teachable concepts, both persisted to MongoDB.
+- **Click any concept chip** → opens a session with that topic pre-loaded *and the full PDF text injected as agent context*. The agent can answer specific questions ("what's the answer to question 5?", "summarize chapter 3", "explain this with reference to the document").
+- **In-session Files tab** → drag-drop PDFs or images mid-session. PDFs get parsed and indexed automatically; images are described by Gemini Vision. Click *"Ask AI about this"* to push the file's content to the agent so you can query it conversationally.
+
+### Session sidebar (4 tabs)
+- **Chat** — text + voice transcript with the agent
+- **Notes** — one-click AI-generated bullet-point study notes from the conversation so far
+- **Summary** — one-click narrative recap of the session
+- **Files** — in-session uploads with status badges, AI processing, and *"Ask AI about this"* attachment
 
 ### Persistence + analytics
 - Every session's whiteboard state, messages, and view mode auto-saves to MongoDB Atlas (debounced).
@@ -180,14 +188,16 @@ src/
 │   └── api/
 │       ├── chat/route.ts           # Streaming Gemini chat
 │       ├── visualize/route.ts      # Mermaid + HTML applet generation
-│       ├── manim/route.ts          # Gemini Pro → Manim code → Modal → mp4
+│       ├── manim/route.ts          # Gemini Pro → Manim code → Modal → mp4 (auto-retry)
+│       ├── notes/route.ts          # Chat history → AI-generated notes / summary
+│       ├── vision/route.ts         # Image → Gemini Vision description (in-session uploads)
 │       ├── transcribe/route.ts     # Audio → Gemini transcribe
 │       ├── voice/route.ts          # ElevenLabs TTS (currently unused)
 │       ├── livekit/route.ts        # Mints LiveKit room JWTs + dispatches agent
 │       ├── zoom/route.ts           # Zoom Video SDK signatures (currently unused)
 │       ├── session/route.ts        # GET/POST per-room state to Mongo
 │       ├── sessions/route.ts       # Aggregate sessions for dashboard/analytics
-│       └── upload/route.ts         # PDF → text → Gemini concept extraction
+│       └── upload/route.ts         # PDF → text + concepts; GET-by-id returns full text for context
 ├── components/
 │   ├── MermaidRenderer.tsx
 │   ├── DesmosRenderer.tsx
@@ -232,10 +242,10 @@ Adding a new tool = three places: a new `llm.tool({...})` in `agent.ts`, a new `
 The platform is intentionally focused on the in-session experience first. Things that are *not yet shipped* and we know about:
 
 - **Authentication / per-user identity** — sessions are currently global. Plug in Clerk / NextAuth + filter Mongo queries by user ID. Search the codebase for `TODO(auth):` to find every spot.
-- **Vector search / RAG over uploaded PDFs** — concepts are extracted but you can't currently ask questions *grounded in* the uploaded document. Embedding + retrieval pipeline is the next step.
+- **Vector search / RAG with semantic retrieval** — full-text PDF context already works (we inject the full document into the agent), but for *very large* documents we'd want chunked embeddings + Mongo Atlas Vector Search instead of dumping everything.
 - **Mastery tracking across sessions** — analytics counts sessions, doesn't yet model per-user concept mastery.
-- **Quiz generation from uploaded material** — `/upload` ends at concepts; turning concepts → adaptive quizzes is a 1-day extension.
-- **Real-time AI avatar** — explored Simli; the cascading latency on top of Gemini Live made it feel unnatural. Re-introducing it correctly requires switching to a fully cascaded TTS pipeline (text Gemini → ElevenLabs → Simli with shared audio), which trades voice latency for visual presence. Tracked as future work.
+- **Adaptive quiz generation** — the agent can show one-off quizzes via the `show_quiz` tool and the user can ask for one in chat, but adaptive difficulty / weak-area targeting needs the mastery layer above.
+- **Real-time AI avatar** — explored Simli; the cascading latency on top of Gemini Live made lip-sync feel unnatural and broke voice quality, so it was removed. Reintroducing it correctly requires switching to a fully cascaded pipeline (text Gemini → ElevenLabs TTS → Simli with shared audio), which trades voice latency for visual presence.
 - **Curriculum-aware learning roadmaps** — generate personalized journeys (interview prep, exam prep, etc.).
 - **Multi-language UI** — Gemini handles the conversation in any language already; UI strings are English-only.
 

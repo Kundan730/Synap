@@ -8,7 +8,7 @@ import {
   PanelRightOpen, PanelRightClose, FileText, Brain,
   Lightbulb, ArrowLeft, Maximize2, Minimize2,
   BookOpen, ListChecks, PenTool, MessageSquare, Loader2,
-  Square,
+  Square, Upload as UploadIcon, Image as ImageIcon, X as XIcon, RefreshCw,
 } from "lucide-react";
 import Link from "next/link";
 import Logo from "@/components/Logo";
@@ -45,8 +45,20 @@ import DrawingBoard from "@/components/DrawingBoard";
 import CodeSandbox from "@/components/CodeSandbox";
 import QuizRenderer, { QuizData } from "@/components/QuizRenderer";
 
-type Tab = "chat" | "notes" | "quiz" | "summary";
+type Tab = "chat" | "notes" | "summary" | "upload";
 interface ChatMsg { id: number; role: "user" | "ai"; text: string; time: string; }
+interface SessionUpload {
+  id: string;
+  name: string;
+  size: number;
+  kind: "image" | "pdf" | "other";
+  dataUrl?: string;             // for images, the inline preview
+  // AI integration
+  aiStatus: "idle" | "analyzing" | "ready" | "error";
+  aiContent?: string;           // PDF text OR image description from Gemini Vision
+  aiError?: string;
+  attachedToAgent?: boolean;    // true once user has clicked "Ask AI about this"
+}
 
 const NOW = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
@@ -182,9 +194,13 @@ function ActiveSessionUI() {
   const [fullscreen, setFullscreen] = useState(false);
   const [mermaidCode, setMermaidCode] = useState<string>("graph TD\n    A[\"🚀 LiveKit WebRTC Connected\"] --> B[\"Ultra-low latency audio/video\"]\n    A --> C[\"AI Agent Ready\"]\n    B --> D[\"Interactive Learning\"]");
   const [vizLoading, setVizLoading] = useState(false);
-  // If we arrived here from /upload (?topic=...), seed the topic with it.
-  const seedTopic = useSearchParams().get("topic") || "";
+  // If we arrived here from /upload (?topic=...&uploadId=...), seed the topic
+  // and (later) fetch the document's full text to include as agent context.
+  const sp = useSearchParams();
+  const seedTopic = sp.get("topic") || "";
+  const seedUploadId = sp.get("uploadId") || "";
   const [topic, setTopic] = useState(seedTopic || "General Learning");
+  const [docText, setDocText] = useState<string>("");
   const [sessionTime, setSessionTime] = useState(0);
   const [viewMode, setViewMode] = useState<"mermaid" | "desmos" | "html" | "video" | "drawing" | "code" | "quiz" | "manim" | "geogebra">("mermaid");
   const [desmosEquations, setDesmosEquations] = useState<string[]>([]);
@@ -198,6 +214,14 @@ function ActiveSessionUI() {
   const [sandboxCode, setSandboxCode] = useState<string>("");
   const [sandboxLang, setSandboxLang] = useState<string>("react");
   const [quizData, setQuizData] = useState<QuizData | null>(null);
+
+  // Per-tab content state
+  const [notesMd, setNotesMd] = useState<string>("");
+  const [summaryMd, setSummaryMd] = useState<string>("");
+  const [notesLoading, setNotesLoading] = useState(false);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [sessionUploads, setSessionUploads] = useState<SessionUpload[]>([]);
+  const sessionUploadInputRef = useRef<HTMLInputElement>(null);
 
 
   const chatEnd = useRef<HTMLDivElement>(null);
@@ -225,21 +249,57 @@ function ActiveSessionUI() {
   // initializing → listening → speaking (greeting) → listening (ready). We
   // wait for the speaking-then-listening transition before sending. A 12-second
   // fallback fires if the agent never speaks (network blip, no greeting).
+  // If we arrived with ?uploadId, fetch that document's full text once. The
+  // text gets folded into the priming message so the agent has it as context
+  // for the rest of the session — answer questions, summarize, find a
+  // specific question's answer in a question bank, etc.
+  useEffect(() => {
+    if (!seedUploadId) return;
+    fetch(`/api/upload?id=${seedUploadId}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.upload?.text) setDocText(data.upload.text);
+      })
+      .catch(e => console.error("Failed to fetch upload text:", e));
+  }, [seedUploadId]);
+
+  // Build the priming message. If we have document text, attach a generous
+  // (but bounded) excerpt as context. We display a shortened version in the
+  // chat panel — sending the full thing to the agent is fine, but rendering
+  // 15k characters in the UI looks bad.
+  const buildPrimer = useCallback((): { full: string; display: string } => {
+    if (!seedTopic) return { full: "", display: "" };
+    const MAX_CONTEXT_CHARS = 15_000;
+    const ctx = docText
+      ? `Here is the document I uploaded for reference (you can quote or answer questions from it):\n\n===DOCUMENT START===\n${docText.slice(0, MAX_CONTEXT_CHARS)}\n===DOCUMENT END===\n\n`
+      : "";
+    const ask = `I'd like to learn about "${seedTopic}". Please teach me step by step using your visual tools, and use the document above to answer any specific questions I ask.`;
+    return {
+      full: ctx + ask,
+      display: docText
+        ? `I'd like to learn about "${seedTopic}". (Document attached as context — feel free to ask the AI questions about it.)`
+        : `I'd like to learn about "${seedTopic}". Please teach me this concept step by step, using your visual tools when helpful.`,
+    };
+  }, [seedTopic, docText]);
+
   const seedSentRef = useRef(false);
   const hasGreetedRef = useRef(false);
   useEffect(() => {
     if (seedSentRef.current || !seedTopic) return;
+    // If we expect document text, wait for it to load before priming. Skip
+    // this guard if there's no uploadId — there's nothing to wait for.
+    if (seedUploadId && !docText) return;
     if (voiceAssistant.state === "speaking") {
       hasGreetedRef.current = true;
       return; // never send while agent is talking
     }
     if (hasGreetedRef.current && voiceAssistant.state === "listening") {
       seedSentRef.current = true;
-      const primer = `I'd like to learn about "${seedTopic}". Please teach me this concept step by step, using your visual tools when helpful.`;
-      sendChat(primer).catch(e => console.error("Failed to seed topic:", e));
-      setMessages(m => [...m, { id: Date.now(), role: "user", text: primer, time: NOW() }]);
+      const { full, display } = buildPrimer();
+      sendChat(full).catch(e => console.error("Failed to seed topic:", e));
+      setMessages(m => [...m, { id: Date.now(), role: "user", text: display, time: NOW() }]);
     }
-  }, [seedTopic, voiceAssistant.state, sendChat]);
+  }, [seedTopic, seedUploadId, docText, voiceAssistant.state, sendChat, buildPrimer]);
 
   // Fallback: if the agent never enters "speaking" within 12s (unusual — would
   // mean greeting failed), send the primer anyway so the user isn't stuck.
@@ -247,13 +307,15 @@ function ActiveSessionUI() {
     if (!seedTopic) return;
     const timer = setTimeout(() => {
       if (seedSentRef.current) return;
+      // If a doc was expected but never loaded, prime without it rather than
+      // leaving the user staring at a silent agent.
       seedSentRef.current = true;
-      const primer = `I'd like to learn about "${seedTopic}". Please teach me this concept step by step, using your visual tools when helpful.`;
-      sendChat(primer).catch(e => console.error("Failed to seed topic (fallback):", e));
-      setMessages(m => [...m, { id: Date.now(), role: "user", text: primer, time: NOW() }]);
+      const { full, display } = buildPrimer();
+      sendChat(full).catch(e => console.error("Failed to seed topic (fallback):", e));
+      setMessages(m => [...m, { id: Date.now(), role: "user", text: display, time: NOW() }]);
     }, 12000);
     return () => clearTimeout(timer);
-  }, [seedTopic, sendChat]);
+  }, [seedTopic, sendChat, buildPrimer]);
 
   // Track user microphone for user transcriptions
   const userAudioTracks = useTracks([Track.Source.Microphone]);
@@ -502,9 +564,114 @@ function ActiveSessionUI() {
   const tabs: { key: Tab; icon: typeof MessageSquare; label: string }[] = [
     { key: "chat", icon: MessageSquare, label: "Chat" },
     { key: "notes", icon: FileText, label: "Notes" },
-    { key: "quiz", icon: ListChecks, label: "Quiz" },
     { key: "summary", icon: BookOpen, label: "Summary" },
+    { key: "upload", icon: UploadIcon, label: "Files" },
   ];
+
+  // Generate Notes / Summary on demand from the current chat history.
+  const generateNotesOrSummary = useCallback(async (mode: "notes" | "summary") => {
+    if (mode === "notes") setNotesLoading(true);
+    else setSummaryLoading(true);
+    try {
+      const res = await fetch("/api/notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode, messages, topic }),
+      });
+      const data = await res.json();
+      const md = (data?.markdown ?? "").toString() || "_The AI returned an empty response._";
+      if (mode === "notes") setNotesMd(md);
+      else setSummaryMd(md);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to generate";
+      if (mode === "notes") setNotesMd(`Error: ${msg}`);
+      else setSummaryMd(`Error: ${msg}`);
+    } finally {
+      if (mode === "notes") setNotesLoading(false);
+      else setSummaryLoading(false);
+    }
+  }, [messages, topic]);
+
+  // Helper: patch one upload by id.
+  const patchUpload = useCallback((id: string, patch: Partial<SessionUpload>) => {
+    setSessionUploads(curr => curr.map(u => u.id === id ? { ...u, ...patch } : u));
+  }, []);
+
+  // Background processing — extract text from PDFs (via /api/upload) or
+  // describe images (via /api/vision) so the agent has something concrete
+  // to query later.
+  const processUploadForAI = useCallback(async (id: string, file: File, kind: SessionUpload["kind"]) => {
+    patchUpload(id, { aiStatus: "analyzing" });
+    try {
+      if (kind === "pdf") {
+        const fd = new FormData();
+        fd.append("file", file);
+        const res = await fetch("/api/upload", { method: "POST", body: fd });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "PDF parse failed");
+        // /api/upload doesn't return the raw text — fetch it via the new GET-by-id.
+        if (!data.uploadId) throw new Error("Upload didn't return an id");
+        const detailRes = await fetch(`/api/upload?id=${data.uploadId}`);
+        const detail = await detailRes.json();
+        const text = detail?.upload?.text || "";
+        if (!text.trim()) throw new Error("Couldn't extract text from this PDF");
+        patchUpload(id, { aiStatus: "ready", aiContent: text });
+      } else if (kind === "image") {
+        const fd = new FormData();
+        fd.append("image", file);
+        const res = await fetch("/api/vision", { method: "POST", body: fd });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Vision analysis failed");
+        patchUpload(id, { aiStatus: "ready", aiContent: data.description });
+      } else {
+        patchUpload(id, { aiStatus: "error", aiError: "Unsupported file type for AI analysis" });
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to process";
+      patchUpload(id, { aiStatus: "error", aiError: msg });
+    }
+  }, [patchUpload]);
+
+  // Inline upload handler for the Files tab. Adds the file to local state,
+  // builds a thumbnail (for images), and kicks off AI processing in the
+  // background so the "Ask AI about this" button can be enabled when ready.
+  const handleSessionUpload = useCallback((files: FileList | null) => {
+    if (!files) return;
+    Array.from(files).forEach(file => {
+      const id = `${file.name}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const isImage = file.type.startsWith("image/");
+      const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+      const kind: SessionUpload["kind"] = isImage ? "image" : isPdf ? "pdf" : "other";
+
+      if (isImage) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = typeof reader.result === "string" ? reader.result : undefined;
+          setSessionUploads(curr => [{ id, name: file.name, size: file.size, kind, dataUrl, aiStatus: "idle" }, ...curr]);
+          processUploadForAI(id, file, kind);
+        };
+        reader.readAsDataURL(file);
+      } else {
+        setSessionUploads(curr => [{ id, name: file.name, size: file.size, kind, aiStatus: "idle" }, ...curr]);
+        if (kind === "pdf") processUploadForAI(id, file, kind);
+      }
+    });
+  }, [processUploadForAI]);
+
+  // "Ask AI about this" — sends the file's extracted content to the agent as
+  // a chat message. Display a short version in the panel; send the full text
+  // to the agent. The agent can then answer follow-up questions about it.
+  const attachUploadToAgent = useCallback((u: SessionUpload) => {
+    if (!u.aiContent || u.aiStatus !== "ready") return;
+    const MAX = 12_000;
+    const content = u.aiContent.slice(0, MAX);
+    const label = u.kind === "image" ? "image" : "PDF";
+    const fullMessage = `I've attached a ${label} called "${u.name}". Here is its content for reference:\n\n===${u.kind.toUpperCase()} START===\n${content}\n===${u.kind.toUpperCase()} END===\n\nPlease use this as context for the rest of our conversation. I may ask you questions about it.`;
+    const displayMessage = `📎 Attached ${label}: ${u.name} — feel free to ask me anything about it.`;
+    sendChat(fullMessage).catch(e => console.error("Failed to attach to agent:", e));
+    setMessages(m => [...m, { id: Date.now() + Math.random(), role: "user", text: displayMessage, time: NOW() }]);
+    patchUpload(u.id, { attachedToAgent: true });
+  }, [sendChat, patchUpload]);
 
   return (
     <div className="flex-1 flex flex-col bg-[#f8fafc] h-screen overflow-hidden relative">
@@ -643,6 +810,153 @@ function ActiveSessionUI() {
                       </div>
                     )}
                     <div ref={chatEnd} />
+                  </div>
+                )}
+
+                {activeTab === "notes" && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-bold text-slate-700">Session Notes</h3>
+                      <button
+                        onClick={() => generateNotesOrSummary("notes")}
+                        disabled={notesLoading}
+                        className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-900 text-white disabled:opacity-50 hover:bg-black transition-colors"
+                      >
+                        {notesLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                        {notesMd ? "Regenerate" : "Generate"}
+                      </button>
+                    </div>
+                    {notesMd ? (
+                      <div className="prose prose-sm max-w-none prose-headings:mt-3 prose-headings:mb-2 prose-li:my-0.5 text-slate-800 bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm">
+                        <ReactMarkdown>{notesMd}</ReactMarkdown>
+                      </div>
+                    ) : (
+                      <div className="text-center py-10 text-slate-400">
+                        <FileText className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                        <p className="text-xs font-medium">Click <span className="font-bold">Generate</span> to extract bullet-point notes from this session.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {activeTab === "summary" && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-bold text-slate-700">Session Summary</h3>
+                      <button
+                        onClick={() => generateNotesOrSummary("summary")}
+                        disabled={summaryLoading}
+                        className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-900 text-white disabled:opacity-50 hover:bg-black transition-colors"
+                      >
+                        {summaryLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                        {summaryMd ? "Regenerate" : "Generate"}
+                      </button>
+                    </div>
+                    {summaryMd ? (
+                      <div className="prose prose-sm max-w-none prose-p:my-2 text-slate-800 bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm">
+                        <ReactMarkdown>{summaryMd}</ReactMarkdown>
+                      </div>
+                    ) : (
+                      <div className="text-center py-10 text-slate-400">
+                        <BookOpen className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                        <p className="text-xs font-medium">Click <span className="font-bold">Generate</span> for a narrative recap of your session.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {activeTab === "upload" && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-bold text-slate-700">Files ({sessionUploads.length})</h3>
+                      <button
+                        onClick={() => sessionUploadInputRef.current?.click()}
+                        className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-900 text-white hover:bg-black transition-colors"
+                      >
+                        <UploadIcon className="w-3 h-3" /> Add file
+                      </button>
+                    </div>
+                    <input
+                      ref={sessionUploadInputRef}
+                      type="file"
+                      accept="image/*,application/pdf,.pdf"
+                      multiple
+                      hidden
+                      onChange={(e) => handleSessionUpload(e.target.files)}
+                    />
+
+                    <div
+                      onClick={() => sessionUploadInputRef.current?.click()}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => { e.preventDefault(); handleSessionUpload(e.dataTransfer.files); }}
+                      className="border-2 border-dashed border-slate-200 rounded-2xl py-8 text-center cursor-pointer hover:border-slate-300 hover:bg-slate-50 transition-colors"
+                    >
+                      <UploadIcon className="w-7 h-7 mx-auto mb-2 text-slate-400" />
+                      <p className="text-xs text-slate-500 font-medium">Drop images or PDFs to attach to this session</p>
+                    </div>
+
+                    {sessionUploads.length === 0 ? (
+                      <p className="text-center text-xs text-slate-400 mt-2">No files attached yet.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {sessionUploads.map((u) => (
+                          <div key={u.id} className="bg-white border border-slate-200/60 rounded-2xl overflow-hidden shadow-sm">
+                            <div className="flex gap-3 p-3">
+                              {u.kind === "image" && u.dataUrl ? (
+                                <img src={u.dataUrl} alt={u.name} className="w-20 h-20 rounded-lg object-cover shrink-0" />
+                              ) : (
+                                <div className="w-20 h-20 rounded-lg flex items-center justify-center bg-slate-50 shrink-0">
+                                  {u.kind === "pdf"
+                                    ? <FileText className="w-8 h-8 text-rose-400" />
+                                    : <ImageIcon className="w-8 h-8 text-slate-400" />}
+                                </div>
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-semibold text-slate-700 truncate">{u.name}</p>
+                                <p className="text-[10px] text-slate-400">{(u.size / 1024).toFixed(1)} KB</p>
+
+                                {u.aiStatus === "analyzing" && (
+                                  <span className="badge badge-warning text-[10px] mt-2 inline-flex items-center gap-1">
+                                    <Loader2 className="w-3 h-3 animate-spin" /> Analyzing
+                                  </span>
+                                )}
+                                {u.aiStatus === "ready" && !u.attachedToAgent && (
+                                  <button
+                                    onClick={() => attachUploadToAgent(u)}
+                                    className="mt-2 inline-flex items-center gap-1.5 text-[10px] font-bold px-3 py-1.5 rounded-lg bg-indigo-500 text-white hover:bg-indigo-600 transition-colors"
+                                  >
+                                    <Sparkles className="w-3 h-3" /> Ask AI about this
+                                  </button>
+                                )}
+                                {u.attachedToAgent && (
+                                  <span className="badge badge-success text-[10px] mt-2 inline-flex items-center gap-1">
+                                    <Sparkles className="w-3 h-3" /> Attached to AI
+                                  </span>
+                                )}
+                                {u.aiStatus === "error" && (
+                                  <p className="text-[10px] text-rose-500 mt-2">{u.aiError}</p>
+                                )}
+                                {u.kind === "other" && u.aiStatus === "idle" && (
+                                  <p className="text-[10px] text-slate-400 mt-2">No AI analysis available for this file type.</p>
+                                )}
+                              </div>
+                              <button
+                                onClick={() => setSessionUploads(curr => curr.filter(x => x.id !== u.id))}
+                                className="self-start text-slate-300 hover:text-rose-500 transition-colors"
+                              >
+                                <XIcon className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {sessionUploads.length > 0 && (
+                      <p className="text-[10px] text-slate-400 mt-2">
+                        After clicking <span className="font-semibold">Ask AI about this</span>, you can ask the AI questions about the file in the Chat tab.
+                      </p>
+                    )}
                   </div>
                 )}
               </div>

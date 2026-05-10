@@ -19,6 +19,7 @@ interface UploadedFile {
   title?: string;
   concepts?: string[];
   error?: string;
+  uploadId?: string;      // Mongo _id, used to fetch doc text in /session
 }
 
 function formatSize(bytes: number) {
@@ -38,8 +39,9 @@ export default function UploadPage() {
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data.uploads)) {
-          setFiles(data.uploads.map((u: { filename: string; sizeBytes: number; title: string; concepts: string[]; createdAt: string }) => ({
+          setFiles(data.uploads.map((u: { id: string; filename: string; sizeBytes: number; title: string; concepts: string[]; createdAt: string }) => ({
             id: `${u.filename}-${u.createdAt}`,
+            uploadId: u.id,
             name: u.filename,
             size: u.sizeBytes,
             status: "ready" as const,
@@ -74,7 +76,7 @@ export default function UploadPage() {
       }
 
       setFiles(curr => curr.map(f => f.id === id
-        ? { ...f, status: "ready", title: data.title, concepts: data.concepts ?? [] }
+        ? { ...f, status: "ready", title: data.title, concepts: data.concepts ?? [], uploadId: data.uploadId }
         : f));
     } catch (e) {
       console.error(e);
@@ -200,10 +202,11 @@ export default function UploadPage() {
                     <div className="flex flex-wrap gap-2">
                       {f.concepts.map((c, ci) => {
                         const room = `lab-${Date.now().toString(36)}-${ci}`;
+                        const uploadParam = f.uploadId ? `&uploadId=${f.uploadId}` : "";
                         return (
                           <Link
                             key={ci}
-                            href={`/session?topic=${encodeURIComponent(c)}&room=${room}`}
+                            href={`/session?topic=${encodeURIComponent(c)}&room=${room}${uploadParam}`}
                             className="badge badge-primary text-[11px] no-underline transition-all hover:scale-105 hover:shadow-md cursor-pointer"
                           >
                             {c}
@@ -212,7 +215,7 @@ export default function UploadPage() {
                       })}
                     </div>
                     <Link
-                      href={`/session?topic=${encodeURIComponent(f.title ?? f.name)}&room=lab-${Date.now().toString(36)}-doc`}
+                      href={`/session?topic=${encodeURIComponent(f.title ?? f.name)}&room=lab-${Date.now().toString(36)}-doc${f.uploadId ? `&uploadId=${f.uploadId}` : ""}`}
                       className="btn-primary mt-4 text-xs px-4 py-2 no-underline inline-flex"
                     >
                       <Sparkles className="w-3.5 h-3.5" /> Learn the whole document
